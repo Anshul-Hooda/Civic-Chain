@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+    <title>CivicChain - Civic Complaint Portal</title>
+
+    <link rel="stylesheet" href="style.css">
+
+</head>
+
+
+<body>
+
+
+<!-- =================================================
+     HEADER
+     ================================================= -->
+
+<header>
+
+    <div class="logo">
+        🏙️ CivicChain
+    </div>
+
+    <nav>
+
+        <a href="#home">
+            Home
+        </a>
+
+        <a href="#report">
+            Report Issue
+        </a>
+
+        <a href="#track">
+            Track Complaint
+        </a>
+
+        <a href="#dashboard">
+            Public Dashboard
+        </a>
+
+    </nav>
+
+</header>
+
+
+
+<!-- =================================================
+     HERO SECTION
+     ================================================= -->
+
+<section id="home" class="hero">
+
+    <div class="hero-content">
+
+        <p class="tagline">
+            TRANSPARENT • ACCOUNTABLE • CITIZEN-CENTRIC
+        </p>
+
+
+        <h1>
+            Make Your City
+            <span>Better.</span>
+        </h1>
+
+
+        <p class="hero-text">
+
+            Report civic problems, track their progress,
+            and help create a more transparent and
+            accountable city.
+
+        </p>
+
+
+        <div class="hero-buttons">
+
+            <button
+                class="primary-btn"
+                onclick="showComplaintForm()">
+
+                Report an Issue
+
+            </button>
+
+
+            <a href="#track">
+
+                <button class="secondary-btn">
+
+                    Track Complaint
+
+                </button>
+
+            </a>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+
+<!-- =================================================
+     HOW IT WORKS
+     ================================================= -->
+
+<section class="how-section">
+
+    <p class="tagline">
+        HOW IT WORKS
+    </p>
+
+
+    <h2>
+        From Complaint to Resolution
+    </h2>
+
+
+    <p class="section-subtitle">
+
+        A simple and transparent process for
+        reporting civic problems.
+
+    </p>
+
+
+    <div class="steps">
+
+
+        <div class="step-card">
+
+            <div class="step-number">
+                01
+            </div>
+
+            <h3>
+                Report
+            </h3>
+
+            <p>
+
+                Submit a civic complaint with
+                details, location and evidence.
+
+            </p>
+
+        </div>
+
+
+
+        <div class="step-card">
+
+            <div class="step-number">
+                02
+            </div>
+
+            <h3>
+                Verify
+            </h3>
+
+            <p>
+
+                The complaint can be verified
+                and forwarded to the appropriate
+                department.
+
+            </p>
+
+        </div>
+
+
+
+        <div class="step-card">
+
+            <div class="step-number">
+                03
+            </div>
+
+            <h3>
+                Track
+            </h3>
+
+            <p>
+
+                Track the complaint's progress
+                using your unique Complaint ID.
+
+            </p>
+
+        </div>
+
+
+
+        <div class="step-card">
+
+            <div class="step-number">
+                04
+            </div>
+
+            <h3>
+                Resolve
+            </h3>
+
+            <p>
+
+                Monitor the resolution and
+                maintain an accountable record.
+
+            </p>
+
+        </div>
+
+
+    </div>
+
+</section>
+
+
+
+<!-- =================================================
+     COMPLAINT FORM
+     ================================================= -->
+
+<section
+    id="report"
+    class="complaint-section">
+
+
+    <div class="section-heading">
+
+        <p class="tagline">
+            REPORT A PROBLEM
+        </p>
+
+
+        <h2>
+            Report a Civic Issue
+        </h2>
+
+
+        <p>
+
+            Provide the details below so your
+            complaint can be properly recorded.
+
+        </p>
+
+    </div>
+
+
+
+    <form id="complaintForm">
+
+
+        <!-- =========================================
+             CITY
+             ========================================= -->
+
+        <label for="city">
+            City *
+        </label>
+
+
+        <select
+            id="city"
+            onchange="checkCustomOption('city', 'customCity')"
+            required>
+
+            <option value="">
+                Select City
+            </option>
+
+            <option value="delhi">
+                Delhi
+            </option>
+
+            <option value="sonipat">
+                Sonipat
+            </option>
+
+            <option value="gurugram">
+                Gurugram
+            </option>
+
+            <option value="other">
+                Add City +
+            </option>
+
+        </select>
+
+
+        <input
+            type="text"
+            id="customCity"
+            class="custom-input"
+            placeholder="Enter your city name">
+
+
+
+        <!-- =========================================
+             DEPARTMENT
+             ========================================= -->
+
+        <label for="department">
+            Department *
+        </label>
+
+
+        <select
+            id="department"
+            onchange="checkCustomOption('department', 'customDepartment')"
+            required>
+
+            <option value="">
+                Select Department
+            </option>
+
+            <option value="roads">
+                Roads
+            </option>
+
+            <option value="sanitation">
+                Sanitation
+            </option>
+
+            <option value="water">
+                Water Supply
+            </option>
+
+            <option value="electricity">
+                Electricity
+            </option>
+
+            <option value="police">
+                Police
+            </option>
+
+            <option value="other">
+                Add Department +
+            </option>
+
+        </select>
+
+
+        <input
+            type="text"
+            id="customDepartment"
+            class="custom-input"
+            placeholder="Enter department name">
+
+
+
+        <!-- =========================================
+             COMPLAINT CATEGORY
+             ========================================= -->
+
+        <label for="category">
+            Complaint Category *
+        </label>
+
+
+        <select
+            id="category"
+            onchange="checkCustomOption('category', 'customCategory')"
+            required>
+
+            <option value="">
+                Select Category
+            </option>
+
+            <option value="pothole">
+                Pothole
+            </option>
+
+            <option value="garbage">
+                Garbage
+            </option>
+
+            <option value="streetlight">
+                Street Light
+            </option>
+
+            <option value="water-leakage">
+                Water Leakage
+            </option>
+
+            <option value="drainage">
+                Drainage
+            </option>
+
+            <option value="other">
+                Add Category +
+            </option>
+
+        </select>
+
+
+        <input
+            type="text"
+            id="customCategory"
+            class="custom-input"
+            placeholder="Enter complaint category">
+
+
+
+        <!-- =========================================
+             DESCRIPTION
+             ========================================= -->
+
+        <label for="description">
+            Describe the Problem *
+        </label>
+
+
+        <textarea
+            id="description"
+            placeholder="Describe the civic problem in detail..."
+            required></textarea>
+
+
+
+        <!-- =========================================
+             LOCATION
+             ========================================= -->
+
+        <label for="location">
+            Location of the Problem *
+        </label>
+
+
+        <input
+            type="text"
+            id="location"
+            placeholder="Enter area, street, landmark, etc."
+            required>
+
+
+        <button
+            type="button"
+            class="location-btn"
+            onclick="getLocation()">
+
+            📍 Use My Current Location
+
+        </button>
+
+
+        <p
+            id="locationMessage"
+            class="field-help">
+        </p>
+
+
+
+        <!-- =========================================
+             PRIORITY
+             ========================================= -->
+
+        <label for="priority">
+            Priority
+        </label>
+
+
+        <select
+            id="priority"
+            required>
+
+            <option value="">
+                Select Priority
+            </option>
+
+            <option value="Low">
+                Low
+            </option>
+
+            <option value="Medium">
+                Medium
+            </option>
+
+            <option value="High">
+                High
+            </option>
+
+        </select>
+
+
+
+        <!-- =========================================
+             EVIDENCE
+             ========================================= -->
+
+        <label for="evidence">
+            Upload Evidence Photo *
+        </label>
+
+
+        <input
+            type="file"
+            id="evidence"
+            accept="image/*"
+            required>
+
+
+        <p class="field-help">
+
+            Upload a photo showing the civic problem.
+
+        </p>
+
+
+
+        <!-- =========================================
+             NAME
+             ========================================= -->
+
+        <label for="name">
+            Name
+        </label>
+
+
+        <input
+            type="text"
+            id="name"
+            placeholder="Enter your name"
+            required>
+
+
+        <p class="field-help">
+
+            🔒 Your name will remain private and
+            will not be shown publicly.
+
+        </p>
+
+
+
+        <!-- =========================================
+             EMAIL
+             ========================================= -->
+
+        <label for="email">
+            Email
+        </label>
+
+
+        <input
+            type="email"
+            id="email"
+            placeholder="Enter your email"
+            required>
+
+
+        <p class="field-help">
+
+            🔒 Your email will remain private and
+            will not be shown publicly.
+
+        </p>
+
+
+
+        <!-- =========================================
+             PHONE
+             ========================================= -->
+
+        <label for="phone">
+            Phone Number
+        </label>
+
+
+        <input
+            type="tel"
+            id="phone"
+            placeholder="Enter your phone number"
+            required>
+
+
+        <p class="field-help">
+
+            🔒 Your phone number will remain private
+            and will not be shown publicly.
+
+        </p>
+
+
+
+        <!-- =========================================
+             PUBLIC USER ID
+             ========================================= -->
+
+        <label for="userId">
+            Public User ID *
+        </label>
+
+
+        <input
+            type="text"
+            id="userId"
+            placeholder="Choose a unique ID, e.g. user1"
+            required>
+
+
+        <p class="field-help">
+
+            Choose a unique public ID.
+            This ID can be displayed instead of
+            your personal information.
+
+        </p>
+
+
+        <p id="userIdMessage"></p>
+
+
+
+        <!-- =========================================
+             SUBMIT
+             ========================================= -->
+
+        <button
+            type="submit"
+            class="submit-btn">
+
+            Submit Complaint
+
+        </button>
+
+
+    </form>
+
+</section>
+
+
+
+<!-- =================================================
+     TRACK COMPLAINT
+     ================================================= -->
+
+<section
+    id="track"
+    class="track-section">
+
+
+    <p class="tagline">
+        TRACK YOUR COMPLAINT
+    </p>
+
+
+    <h2>
+        Track Complaint
+    </h2>
+
+
+    <p>
+
+        Enter your Complaint ID to view
+        the current status of your complaint.
+
+    </p>
+
+
+    <div class="track-box">
+
+        <input
+            type="text"
+            id="trackId"
+            placeholder="Enter Complaint ID e.g. CC-123456">
+
+
+        <button
+            type="button"
+            onclick="trackComplaint()">
+
+            Track
+
+        </button>
+
+    </div>
+
+
+    <div id="trackingResult"></div>
+
+
+</section>
+
+
+
+<!-- =================================================
+     PUBLIC DASHBOARD
+     ================================================= -->
+
+<section
+    id="dashboard"
+    class="dashboard-section">
+
+
+    <p class="tagline">
+        CIVIC ACCOUNTABILITY
+    </p>
+
+
+    <h2>
+        Public Dashboard
+    </h2>
+
+
+    <p>
+
+        Transparent statistics about
+        civic complaints.
+
+    </p>
+
+
+    <div class="stats">
+
+
+        <!-- TOTAL -->
+
+        <div class="stat-card">
+
+            <h3 id="totalComplaints">
+                0
+            </h3>
+
+            <p>
+                Total Complaints
+            </p>
+
+        </div>
+
+
+
+        <!-- RESOLVED -->
+
+        <div class="stat-card">
+
+            <h3 id="resolvedComplaints">
+                0
+            </h3>
+
+            <p>
+                Resolved
+            </p>
+
+        </div>
+
+
+
+        <!-- IN PROGRESS -->
+
+        <div class="stat-card">
+
+            <h3 id="progressComplaints">
+                0
+            </h3>
+
+            <p>
+                In Progress
+            </p>
+
+        </div>
+
+
+
+        <!-- VERIFIED -->
+
+        <div class="stat-card">
+
+            <h3 id="verifiedComplaints">
+                0
+            </h3>
+
+            <p>
+                Verified
+            </p>
+
+        </div>
+
+
+    </div>
+
+</section>
+
+
+
+<!-- =================================================
+     FOOTER
+     ================================================= -->
+
+<footer>
+
+    <h3>
+        🏙️ CivicChain
+    </h3>
+
+
+    <p>
+
+        Building transparent and accountable
+        cities through technology.
+
+    </p>
+
+
+    <p class="footer-small">
+
+        © 2026 CivicChain • Hackathon Project
+
+    </p>
+
+</footer>
+
+
+
+<!-- =================================================
+     JAVASCRIPT
+     ================================================= -->
+
+<script src="script.js"></script>
+
+
+</body>
+
+</html>

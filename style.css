@@ -1,0 +1,1187 @@
+/* =====================================================
+   CIVICCHAIN - MAIN STYLESHEET
+   ===================================================== */
+
+
+/* =====================================================
+   1. RESET
+   ===================================================== */
+
+* {
+
+    margin: 0;
+
+    padding: 0;
+
+    box-sizing: border-box;
+
+}
+
+
+html {
+
+    scroll-behavior: smooth;
+
+}
+
+
+body {
+
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+
+    background: #f4f7fb;
+
+    color: #172033;
+
+    line-height: 1.6;
+
+}
+
+
+/* =====================================================
+   2. HEADER
+   ===================================================== */
+
+header {
+
+    width: 100%;
+
+    background: white;
+
+    padding: 18px 6%;
+
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: center;
+
+    border-bottom: 1px solid #e5e7eb;
+
+    position: sticky;
+
+    top: 0;
+
+    z-index: 1000;
+
+}
+
+
+.logo {
+
+    font-size: 27px;
+
+    font-weight: bold;
+
+    color: #1456a0;
+
+    white-space: nowrap;
+
+}
+
+
+nav {
+
+    display: flex;
+
+    gap: 28px;
+
+}
+
+
+nav a {
+
+    text-decoration: none;
+
+    color: #374151;
+
+    font-size: 15px;
+
+    font-weight: 600;
+
+    transition: 0.2s;
+
+}
+
+
+nav a:hover {
+
+    color: #1456a0;
+
+}
+
+
+/* =====================================================
+   3. HERO
+   ===================================================== */
+
+.hero {
+
+    min-height: 620px;
+
+    display: flex;
+
+    justify-content: center;
+
+    align-items: center;
+
+    text-align: center;
+
+    padding: 80px 20px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #eef6ff,
+            #ffffff
+        );
+
+}
+
+
+.hero-content {
+
+    max-width: 850px;
+
+}
+
+
+.tagline {
+
+    color: #2563eb;
+
+    font-size: 13px;
+
+    font-weight: bold;
+
+    letter-spacing: 2px;
+
+    margin-bottom: 12px;
+
+}
+
+
+.hero h1 {
+
+    font-size: 58px;
+
+    line-height: 1.1;
+
+    margin-bottom: 25px;
+
+}
+
+
+.hero h1 span {
+
+    color: #2563eb;
+
+    display: block;
+
+}
+
+
+.hero-text {
+
+    max-width: 700px;
+
+    margin: auto;
+
+    font-size: 19px;
+
+    color: #667085;
+
+}
+
+
+.hero-buttons {
+
+    margin-top: 35px;
+
+    display: flex;
+
+    justify-content: center;
+
+    gap: 15px;
+
+    flex-wrap: wrap;
+
+}
+
+
+/* =====================================================
+   4. BUTTONS
+   ===================================================== */
+
+button {
+
+    font-family: inherit;
+
+    cursor: pointer;
+
+}
+
+
+.primary-btn,
+.secondary-btn,
+.submit-btn,
+.check-btn,
+.location-btn {
+
+    border: none;
+
+    border-radius: 8px;
+
+    padding: 13px 22px;
+
+    font-size: 15px;
+
+    font-weight: 600;
+
+    transition: 0.2s;
+
+}
+
+
+.primary-btn {
+
+    background: #2563eb;
+
+    color: white;
+
+}
+
+
+.primary-btn:hover {
+
+    background: #1d4ed8;
+
+}
+
+
+.secondary-btn {
+
+    background: white;
+
+    color: #2563eb;
+
+    border: 1px solid #2563eb;
+
+}
+
+
+.secondary-btn:hover {
+
+    background: #eff6ff;
+
+}
+
+
+/* =====================================================
+   5. HOW IT WORKS
+   ===================================================== */
+
+.how-section {
+
+    background: white;
+
+    padding: 90px 6%;
+
+    text-align: center;
+
+}
+
+
+.how-section h2,
+.complaint-section h2,
+.track-section h2,
+.dashboard-section h2 {
+
+    font-size: 38px;
+
+    margin-bottom: 12px;
+
+}
+
+
+.section-subtitle {
+
+    color: #667085;
+
+    margin-bottom: 45px;
+
+}
+
+
+.steps {
+
+    max-width: 1100px;
+
+    margin: 40px auto 0;
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(4, 1fr);
+
+    gap: 20px;
+
+}
+
+
+.step-card {
+
+    background: #f8fafc;
+
+    border: 1px solid #e5e7eb;
+
+    border-radius: 15px;
+
+    padding: 30px 20px;
+
+}
+
+
+.step-number {
+
+    color: #2563eb;
+
+    font-size: 14px;
+
+    font-weight: bold;
+
+    margin-bottom: 12px;
+
+}
+
+
+.step-card h3 {
+
+    font-size: 20px;
+
+    margin-bottom: 10px;
+
+}
+
+
+.step-card p {
+
+    color: #667085;
+
+    font-size: 14px;
+
+}
+
+
+/* =====================================================
+   6. COMPLAINT SECTION
+   ===================================================== */
+
+.complaint-section {
+
+    max-width: 900px;
+
+    margin: 80px auto;
+
+    padding: 50px;
+
+    background: white;
+
+    border-radius: 18px;
+
+    box-shadow:
+        0 8px 35px
+        rgba(0, 0, 0, 0.07);
+
+}
+
+
+.section-heading {
+
+    margin-bottom: 35px;
+
+}
+
+
+.section-heading p:last-child {
+
+    color: #667085;
+
+}
+
+
+/* =====================================================
+   7. FORM
+   ===================================================== */
+
+form {
+
+    display: flex;
+
+    flex-direction: column;
+
+}
+
+
+label {
+
+    margin-top: 18px;
+
+    margin-bottom: 7px;
+
+    font-weight: 600;
+
+    color: #273142;
+
+}
+
+
+select,
+input[type="text"],
+input[type="file"],
+textarea {
+
+    width: 100%;
+
+    padding: 13px;
+
+    border: 1px solid #d1d5db;
+
+    border-radius: 8px;
+
+    background: white;
+
+    color: #1f2937;
+
+    font-size: 15px;
+
+    outline: none;
+
+}
+
+
+select:focus,
+input[type="text"]:focus,
+textarea:focus {
+
+    border-color: #2563eb;
+
+    box-shadow:
+        0 0 0 3px
+        rgba(37, 99, 235, 0.10);
+
+}
+
+
+textarea {
+
+    min-height: 140px;
+
+    resize: vertical;
+
+}
+
+
+.custom-input {
+
+    display: none;
+
+    margin-top: 10px;
+
+}
+
+
+/* =====================================================
+   8. HELP TEXT
+   ===================================================== */
+
+.field-help {
+
+    margin-top: 6px;
+
+    font-size: 13px;
+
+    color: #6b7280;
+
+}
+
+
+#userIdMessage {
+
+    margin-top: 8px;
+
+    font-size: 14px;
+
+    font-weight: 600;
+
+}
+
+
+#locationMessage {
+
+    margin-bottom: 5px;
+
+}
+
+
+/* =====================================================
+   9. LOCATION BUTTON
+   ===================================================== */
+
+.location-btn {
+
+    margin-top: 12px;
+
+    align-self: flex-start;
+
+    background: #eff6ff;
+
+    color: #2563eb;
+
+    border: 1px solid #bfdbfe;
+
+}
+
+
+.location-btn:hover {
+
+    background: #dbeafe;
+
+}
+
+
+/* =====================================================
+   10. SUBMIT BUTTON
+   ===================================================== */
+
+.submit-btn {
+
+    margin-top: 30px;
+
+    background: #2563eb;
+
+    color: white;
+
+    width: 100%;
+
+    padding: 15px;
+
+    font-size: 16px;
+
+}
+
+
+.submit-btn:hover {
+
+    background: #1d4ed8;
+
+}
+
+
+/* =====================================================
+   11. TRACKING SECTION
+   ===================================================== */
+
+.track-section {
+
+    padding: 90px 6%;
+
+    text-align: center;
+
+    background: #eef6ff;
+
+}
+
+
+.track-section > p:not(.tagline) {
+
+    color: #667085;
+
+    margin-bottom: 30px;
+
+}
+
+
+.track-box {
+
+    max-width: 650px;
+
+    margin: auto;
+
+    display: flex;
+
+    gap: 10px;
+
+}
+
+
+.track-box input {
+
+    flex: 1;
+
+}
+
+
+.track-box button {
+
+    background: #2563eb;
+
+    color: white;
+
+    border: none;
+
+    border-radius: 8px;
+
+    padding: 0 25px;
+
+    font-weight: bold;
+
+}
+
+
+.track-box button:hover {
+
+    background: #1d4ed8;
+
+}
+
+
+/* =====================================================
+   12. TRACKING RESULT
+   ===================================================== */
+
+#trackingResult {
+
+    max-width: 850px;
+
+    margin: 30px auto 0;
+
+}
+
+
+.tracking-card {
+
+    background: white;
+
+    border-radius: 15px;
+
+    padding: 30px;
+
+    text-align: left;
+
+    box-shadow:
+        0 5px 25px
+        rgba(0, 0, 0, 0.07);
+
+}
+
+
+.tracking-card h3 {
+
+    color: #2563eb;
+
+    font-size: 24px;
+
+    margin-bottom: 20px;
+
+}
+
+
+.tracking-card p {
+
+    margin-bottom: 8px;
+
+}
+
+
+.tracking-error {
+
+    background: white;
+
+    padding: 25px;
+
+    border-radius: 12px;
+
+}
+
+
+.tracking-error h3 {
+
+    color: #dc2626;
+
+    margin-bottom: 8px;
+
+}
+
+
+/* =====================================================
+   13. STATUS TIMELINE
+   ===================================================== */
+
+.status-timeline {
+
+    display: flex;
+
+    align-items: center;
+
+    margin-top: 35px;
+
+    overflow-x: auto;
+
+    padding-bottom: 10px;
+
+}
+
+
+.timeline-step {
+
+    min-width: 90px;
+
+    text-align: center;
+
+}
+
+
+.timeline-step span {
+
+    width: 38px;
+
+    height: 38px;
+
+    display: flex;
+
+    justify-content: center;
+
+    align-items: center;
+
+    margin: auto;
+
+    border-radius: 50%;
+
+    background: #e5e7eb;
+
+    color: #6b7280;
+
+    font-weight: bold;
+
+}
+
+
+.timeline-step.active span {
+
+    background: #2563eb;
+
+    color: white;
+
+}
+
+
+.timeline-step p {
+
+    font-size: 12px;
+
+    margin-top: 7px;
+
+}
+
+
+.timeline-line {
+
+    height: 2px;
+
+    min-width: 35px;
+
+    background: #d1d5db;
+
+}
+
+
+/* =====================================================
+   14. CURRENT STATUS
+   ===================================================== */
+
+.current-status {
+
+    margin-top: 25px;
+
+    padding: 15px;
+
+    background: #eff6ff;
+
+    border-radius: 8px;
+
+    color: #1d4ed8;
+
+}
+
+
+/* =====================================================
+   15. DASHBOARD
+   ===================================================== */
+
+.dashboard-section {
+
+    padding: 90px 6%;
+
+    text-align: center;
+
+    background: white;
+
+}
+
+
+.dashboard-section > p:not(.tagline) {
+
+    color: #667085;
+
+    margin-bottom: 40px;
+
+}
+
+
+.stats {
+
+    max-width: 1100px;
+
+    margin: auto;
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(4, 1fr);
+
+    gap: 20px;
+
+}
+
+
+.stat-card {
+
+    padding: 30px 20px;
+
+    background: #f8fafc;
+
+    border: 1px solid #e5e7eb;
+
+    border-radius: 15px;
+
+}
+
+
+.stat-card h3 {
+
+    font-size: 38px;
+
+    color: #2563eb;
+
+    margin-bottom: 5px;
+
+}
+
+
+.stat-card p {
+
+    color: #667085;
+
+    font-size: 14px;
+
+}
+
+
+/* =====================================================
+   16. FOOTER
+   ===================================================== */
+
+footer {
+
+    background: #111827;
+
+    color: white;
+
+    text-align: center;
+
+    padding: 45px 20px;
+
+}
+
+
+footer h3 {
+
+    font-size: 23px;
+
+    margin-bottom: 8px;
+
+}
+
+
+footer p {
+
+    color: #cbd5e1;
+
+}
+
+
+.footer-small {
+
+    margin-top: 20px;
+
+    font-size: 13px;
+
+}
+
+
+/* =====================================================
+   17. TABLET
+   ===================================================== */
+
+@media (max-width: 900px) {
+
+    header {
+
+        padding: 16px 4%;
+
+    }
+
+
+    nav {
+
+        gap: 15px;
+
+    }
+
+
+    nav a {
+
+        font-size: 13px;
+
+    }
+
+
+    .hero h1 {
+
+        font-size: 46px;
+
+    }
+
+
+    .steps {
+
+        grid-template-columns:
+            repeat(2, 1fr);
+
+    }
+
+
+    .stats {
+
+        grid-template-columns:
+            repeat(2, 1fr);
+
+    }
+
+}
+
+
+/* =====================================================
+   18. MOBILE
+   ===================================================== */
+
+@media (max-width: 600px) {
+
+
+    /* Header */
+
+    header {
+
+        position: relative;
+
+        flex-direction: column;
+
+        gap: 15px;
+
+        padding: 18px 15px;
+
+    }
+
+
+    .logo {
+
+        font-size: 24px;
+
+    }
+
+
+    nav {
+
+        width: 100%;
+
+        justify-content: center;
+
+        flex-wrap: wrap;
+
+        gap: 10px 15px;
+
+    }
+
+
+    nav a {
+
+        font-size: 13px;
+
+    }
+
+
+    /* Hero */
+
+    .hero {
+
+        min-height: 520px;
+
+        padding: 60px 18px;
+
+    }
+
+
+    .hero h1 {
+
+        font-size: 38px;
+
+    }
+
+
+    .hero-text {
+
+        font-size: 16px;
+
+    }
+
+
+    .hero-buttons {
+
+        flex-direction: column;
+
+        width: 100%;
+
+    }
+
+
+    .hero-buttons button {
+
+        width: 100%;
+
+    }
+
+
+    /* Sections */
+
+    .how-section,
+    .track-section,
+    .dashboard-section {
+
+        padding: 60px 15px;
+
+    }
+
+
+    .how-section h2,
+    .complaint-section h2,
+    .track-section h2,
+    .dashboard-section h2 {
+
+        font-size: 30px;
+
+    }
+
+
+    /* Steps */
+
+    .steps {
+
+        grid-template-columns: 1fr;
+
+    }
+
+
+    /* Complaint form */
+
+    .complaint-section {
+
+        margin: 40px 15px;
+
+        padding: 25px 18px;
+
+        border-radius: 14px;
+
+    }
+
+
+    select,
+    input[type="text"],
+    input[type="file"],
+    textarea {
+
+        font-size: 16px;
+
+    }
+
+
+    /* Tracking */
+
+    .track-box {
+
+        flex-direction: column;
+
+    }
+
+
+    .track-box input {
+
+        width: 100%;
+
+    }
+
+
+    .track-box button {
+
+        padding: 13px;
+
+    }
+
+
+    /* Dashboard */
+
+    .stats {
+
+        grid-template-columns: 1fr 1fr;
+
+        gap: 10px;
+
+    }
+
+
+    .stat-card {
+
+        padding: 22px 10px;
+
+    }
+
+
+    .stat-card h3 {
+
+        font-size: 30px;
+
+    }
+
+
+    /* Timeline */
+
+    .status-timeline {
+
+        justify-content: flex-start;
+
+    }
+
+}
