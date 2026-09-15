@@ -5998,3 +5998,81 @@ select:focus-visible {
         display: none !important;
     }
 }
+
+/* =========================================================
+   MOBILE NAVIGATION — KEEP ALL CITYFILE SECTIONS ACCESSIBLE
+   ========================================================= */
+
+@media (max-width: 680px) {
+
+    .site-header {
+        grid-template-columns: auto 1fr auto;
+        padding: 0 14px;
+        gap: 10px;
+    }
+
+    /* Restore navigation — old CSS hides this completely */
+    .main-nav {
+        display: flex !important;
+
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+
+        z-index: 8000;
+
+        height: 62px;
+        padding: 0 8px;
+
+        justify-content: space-around;
+        align-items: center;
+        gap: 2px;
+
+        background: rgba(7, 12, 16, 0.97);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+    }
+
+    /* Earlier tablet CSS hides links 3, 4 and 5.
+       Restore ALL of them. */
+    .main-nav .nav-link,
+    .main-nav .nav-link:nth-child(3),
+    .main-nav .nav-link:nth-child(4),
+    .main-nav .nav-link:nth-child(5) {
+        display: flex !important;
+
+        flex: 1 1 0;
+        justify-content: center;
+        align-items: center;
+
+        min-width: 0;
+        padding: 18px 3px;
+
+        font-size: 7px;
+        letter-spacing: 0.06em;
+        white-space: nowrap;
+    }
+
+    .nav-link.active::after {
+        left: 20%;
+        right: 20%;
+        bottom: 8px;
+    }
+
+    /* Prevent bottom nav from covering page content */
+    body {
+        padding-bottom: 62px;
+    }
+
+    /* Homepage bottom controls need to sit ABOVE mobile nav */
+    .city-explorer-bar {
+        bottom: 74px !important;
+    }
+
+    .city-pulse {
+        bottom: 142px !important;
+    }
+}
