@@ -5999,957 +5999,740 @@ select:focus-visible {
     }
 }
 
-/* ============================================================
-   CITYFILE — FINAL MOBILE OVERRIDE
-   Desktop is NOT affected.
-   Paste this at the VERY END of style.css
-   ============================================================ */
+/* =========================================================
+   MOBILE CONTINUOUS STRUCTURE — TEST FIRST
+   ========================================================= */
 
 @media (max-width: 680px) {
 
-    /* ------------------------------
-       GLOBAL MOBILE
-       ------------------------------ */
-
-    html,
-    body {
-        width: 100%;
-        max-width: 100%;
-        overflow-x: hidden !important;
-    }
-
-    body {
-        padding-bottom: 72px;
-    }
-
-    * {
-        max-width: 100%;
-    }
-
-
-    /* ========================================================
-       HEADER
-       ======================================================== */
-
-    .site-header {
-        grid-template-columns: 1fr auto !important;
-
-        height: 64px;
-        min-height: 64px;
-
-        padding: 0 14px !important;
-        gap: 10px;
-    }
-
-    .brand-symbol {
-        width: 34px;
-        height: 34px;
-    }
-
-    .brand-text strong {
-        font-size: 12px;
-    }
-
-    .brand-text small {
-        display: none;
-    }
-
-    .report-button {
-        padding: 10px 12px !important;
-    }
-
-
-    /* ========================================================
-       MOBILE BOTTOM NAVIGATION
-       Never hide FILES / TRACES / INTEGRITY / YOUR FILES
-       ======================================================== */
-
-    .main-nav {
-        display: flex !important;
-
-        position: fixed !important;
-
-        z-index: 9999;
-
-        left: 0;
-        right: 0;
-        bottom: 0;
-
-        width: 100%;
-
-        height: 66px;
-
-        padding:
-            0
-            max(5px, env(safe-area-inset-right))
-            env(safe-area-inset-bottom)
-            max(5px, env(safe-area-inset-left));
-
-        align-items: center;
-        justify-content: space-around;
-
-        gap: 0 !important;
-
-        background:
-            rgba(7, 11, 15, 0.97);
-
-        border-top:
-            1px solid rgba(239, 231, 216, 0.12);
-
-        backdrop-filter: blur(18px);
-        -webkit-backdrop-filter: blur(18px);
-    }
-
-
-    /* Restore EVERY nav item that older CSS hides */
-
-    .main-nav .nav-link,
-    .main-nav .nav-link:nth-child(1),
-    .main-nav .nav-link:nth-child(2),
-    .main-nav .nav-link:nth-child(3),
-    .main-nav .nav-link:nth-child(4),
-    .main-nav .nav-link:nth-child(5) {
-
-        display: flex !important;
-
-        flex: 1 1 20%;
-
-        min-width: 0;
-
-        height: 100%;
-
-        padding: 0 3px !important;
-
-        align-items: center;
-        justify-content: center;
-
-        text-align: center;
-
-        font-size: 7px !important;
-        line-height: 1.2;
-
-        letter-spacing: 0.04em !important;
-
-        white-space: normal;
-    }
-
-    .main-nav .nav-link.active::after {
-        left: 22%;
-        right: 22%;
-        bottom: 7px;
-    }
-
-
-    /* ========================================================
-       HOME — STOP USING DESKTOP VIEWPORT AS A CLIPPING BOX
-       ======================================================== */
-
-    .home-view {
-        min-height: auto !important;
-        height: auto !important;
-
-        overflow: visible !important;
-    }
-
-    .city-world {
-        position: relative;
-
-        width: 100%;
-
-        /*
-         More vertical room on phones.
-         Desktop remains untouched.
-        */
-        height: 920px !important;
-        min-height: 920px !important;
-
-        overflow: hidden;
-    }
-
-
-    /* ------------------------------
-       HOME INTRODUCTION
-       ------------------------------ */
-
-    .city-introduction {
-        top: 105px !important;
-
-        left: 18px !important;
-        right: 18px !important;
-
-        width: auto !important;
-
-        z-index: 400;
-    }
-
-    .city-introduction h1 {
-        font-size:
-            clamp(42px, 14vw, 60px) !important;
-
-        line-height: 0.9;
-    }
-
-    .city-introduction-copy {
-        max-width: 100% !important;
-
-        font-size: 12px;
-        line-height: 1.6;
-    }
-
-    .home-actions {
-        display: flex;
-        flex-direction: column;
-
-        align-items: stretch;
-
-        gap: 9px;
-
-        width: 100%;
-    }
-
-    .home-primary-action,
-    .home-secondary-action {
-        flex: none !important;
-
-        width: 100%;
-    }
-
-
-    /* ========================================================
-       RESTORE CIVIC PROBLEM MARKERS
-       Older CSS was hiding these.
-       ======================================================== */
-
-    .marker-road,
-    .marker-water,
-    .marker-sanitation,
-    .marker-light {
-        display: block !important;
-    }
-
     /*
-       Keep marker cards compact so four records can coexist
-       on a narrow screen.
+       On mobile, these 5 sections form ONE page.
+       This overrides the desktop .view / .active-view system.
     */
 
-    .marker-card {
-        width: 118px !important;
-
-        padding: 8px !important;
-    }
-
-    .marker-card strong {
-        font-size: 8px;
-    }
-
-    .marker-card span,
-    .marker-card small {
-        font-size: 6px;
-    }
-
-
-    /* Reposition markers independently */
-
-    .marker-sanitation {
-        left: 15px !important;
-        right: auto !important;
-
-        bottom: 340px !important;
-    }
-
-    .marker-light {
-        right: 15px !important;
-        left: auto !important;
-
-        bottom: 380px !important;
-    }
-
-    .marker-road {
-        left: 25% !important;
-        right: auto !important;
-
-        bottom: 250px !important;
-    }
-
-    .marker-water {
-        right: 14px !important;
-        left: auto !important;
-
-        bottom: 265px !important;
-    }
-
-
-    /* ========================================================
-       CITY PULSE
-       ======================================================== */
-
-    .city-pulse {
-        left: 14px !important;
-        right: 14px !important;
-
-        bottom: 82px !important;
-
-        width: auto !important;
-
-        padding: 10px !important;
-    }
-
-    .city-pulse-grid {
-        display: grid;
-
-        grid-template-columns:
-            repeat(2, minmax(0, 1fr)) !important;
-    }
-
-    .pulse-stat {
-        min-width: 0;
-
-        min-height: 54px !important;
-
-        padding: 8px !important;
-    }
-
-    .pulse-stat strong {
-        font-size: 19px !important;
-    }
-
-    .pulse-stat span {
-        font-size: 6px !important;
-    }
-
-    /*
-       Restore these instead of silently removing information.
-    */
-
-    .pulse-latest,
-    .city-pulse-divider {
+    #homeView,
+    #archiveView,
+    #trackView,
+    #integrityView,
+    #profileView {
         display: block !important;
-    }
-
-
-    /* ========================================================
-       CITY EXPLORER
-       ======================================================== */
-
-    .city-explorer-bar {
         position: relative !important;
 
-        left: auto !important;
-        right: auto !important;
-        bottom: auto !important;
+        opacity: 1 !important;
+        visibility: visible !important;
 
-        width:
-            calc(100% - 28px) !important;
+        pointer-events: auto !important;
 
-        margin:
-            18px auto 0 !important;
-
-        flex-direction: column;
-
-        align-items: stretch;
-
-        gap: 10px;
-    }
-
-    .city-explorer-bar > div {
-        width: 100%;
-    }
-
-    .city-explorer-bar button {
-        width: 100%;
-
-        justify-content: space-between;
-    }
-
-
-    /* ========================================================
-       ALL NORMAL CONTENT PAGES
-       FILES / TRACES / INTEGRITY / YOUR FILES
-       ======================================================== */
-
-    .content-view,
-    .map-view,
-    .archive-view,
-    .track-view,
-    .profile-view,
-    .integrity-view {
-
-        min-height: 100svh;
-
-        height: auto !important;
-
-        overflow: visible !important;
-
-        padding-bottom: 90px !important;
-    }
-
-
-    .page-shell,
-    .map-page-shell,
-    .report-shell,
-    .inner-page-shell,
-    .track-view .narrow-page {
-
-        width:
-            calc(100% - 28px) !important;
-
-        max-width: none !important;
-
-        margin-left: auto !important;
-        margin-right: auto !important;
-    }
-
-
-    /* ========================================================
-       INNER PAGE HERO
-       ======================================================== */
-
-    .inner-hero,
-    .integrity-hero {
-
-        display: grid !important;
-
-        grid-template-columns:
-            minmax(0, 1fr) !important;
-
-        gap: 26px !important;
-
-        padding-bottom: 38px !important;
-    }
-
-    .inner-hero h2,
-    .integrity-hero h2 {
-
-        font-size:
-            clamp(42px, 13vw, 54px) !important;
-
-        overflow-wrap: anywhere;
-    }
-
-    .archive-manifesto,
-    .profile-note,
-    .integrity-explainer {
-
-        padding:
-            20px 0 0 !important;
-
-        border-left: 0 !important;
-
-        border-top:
-            1px solid rgba(197, 154, 98, 0.30);
-    }
-
-
-    /* ========================================================
-       FILES — STATUS LEDGER
-       ======================================================== */
-
-    .archive-status-ledger {
-
-        display: grid !important;
-
-        grid-template-columns:
-            repeat(2, minmax(0, 1fr)) !important;
-
-        width: 100%;
-    }
-
-    .ledger-stat {
-        min-width: 0;
-
-        padding:
-            18px 12px !important;
-    }
-
-
-    /* ========================================================
-       FILES — BOOK
-       Convert desktop open-book layout into vertical mobile book
-       ======================================================== */
-
-    .civic-book-stage {
-
-        position: relative;
-
-        display: block !important;
-
-        width: 100%;
-    }
-
-    .civic-book {
-
-        display: block !important;
+        transform: none !important;
 
         width: 100% !important;
+        height: auto !important;
 
         min-height: 0 !important;
     }
 
-    .book-page {
 
-        width: 100% !important;
+    /*
+       Internal pages should begin immediately after
+       the previous section instead of behaving like screens.
+    */
 
-        min-height: 0 !important;
-
-        transform: none !important;
+    #archiveView,
+    #trackView,
+    #integrityView,
+    #profileView {
+        padding-top: 0 !important;
+        margin-top: 0 !important;
     }
 
-    .book-page-left {
-        border-radius:
-            10px 10px 0 0 !important;
-    }
 
-    .book-page-right {
-        border-radius:
-            0 0 10px 10px !important;
-    }
+    /*
+       REPORT stays separate.
+       MAP stays separate.
+    */
 
-    .book-page-content {
-
-        padding:
-            28px 20px !important;
-    }
-
-    .book-spine {
-
-        position: relative !important;
-
-        top: auto !important;
-        bottom: auto !important;
-        left: auto !important;
-        right: auto !important;
-
-        width: 100% !important;
-        height: 12px !important;
-
-        transform: none !important;
-    }
-
-    .book-turn-page {
+    #reportView:not(.active-view),
+    #mapView:not(.active-view) {
         display: none !important;
     }
 
-    .book-meta-grid {
+}
 
-        grid-template-columns:
-            1fr !important;
+/* =========================================================
+   MOBILE — RESTORE DESKTOP BOOK SHAPE
+   ========================================================= */
 
-        gap: 16px !important;
-    }
+@media (max-width: 680px) {
 
-    .book-arrow {
-
-        position: static !important;
-
-        width: 44px;
-        height: 44px;
-    }
-
-    .book-controls-copy {
-
-        width: 100%;
-
-        margin-top: 18px !important;
-
-        padding: 0 !important;
-
-        gap: 10px;
-    }
-
-
-    /* ========================================================
-       ARCHIVE / FILE CARDS
-       ======================================================== */
-
-    .archive-toolbar {
-
-        flex-direction: column !important;
-
-        align-items: stretch !important;
-
-        gap: 14px !important;
-    }
-
-    .filter-tabs,
-    .archive-filter-tabs {
-
-        display: flex;
-
-        flex-wrap: wrap;
-
-        gap: 8px;
-    }
-
-    .archive-grid {
-
-        display: grid !important;
-
-        grid-template-columns:
-            minmax(0, 1fr) !important;
-
-        gap: 14px;
-    }
-
-
-    /* ========================================================
-       TRACES / RECORD LOOKUP
-       ======================================================== */
-
-    .track-lookup {
-
-        padding:
-            45px 0
-            35px !important;
-    }
-
-    .track-lookup-heading h2 {
-
-        font-size:
-            clamp(44px, 14vw, 62px) !important;
-
-        overflow-wrap: anywhere;
-    }
-
-    .track-panel {
-
-        width: 100%;
-
-        padding:
-            28px 18px !important;
-
-        margin-top: 20px !important;
-    }
-
-    .track-panel h2 {
-
-        font-size:
-            clamp(38px, 12vw, 52px) !important;
-    }
-
-    .track-search,
-    .track-search-line {
-
-        display: grid !important;
-
-        grid-template-columns:
-            minmax(0, 1fr) !important;
-
-        width: 100%;
-    }
-
-    .track-search input,
-    .track-search-line input {
-
-        width: 100%;
-
-        min-width: 0;
-    }
-
-    .track-search button,
-    .track-search-line button {
-
+    /* Stage: arrows + book + arrows */
+    #archiveView .civic-book-stage {
         width: 100% !important;
 
-        min-height: 48px;
+        display: grid !important;
+        grid-template-columns:
+            20px minmax(0, 1fr) 20px !important;
 
-        margin-top: 8px;
-    }
+        gap: 2px !important;
 
-    .track-registry-search {
+        min-height: 430px !important;
 
-        width: 100%;
-
-        margin-top: 35px !important;
-    }
-
-    .track-registry-hint {
-        margin-left: 0 !important;
+        align-items: center !important;
     }
 
 
-    /* ========================================================
-       YOUR FILES
-       ======================================================== */
-
-    .profile-summary {
-
+    /* The book itself MUST stay two-page */
+    #archiveView .civic-book {
         display: grid !important;
 
         grid-template-columns:
-            repeat(2, minmax(0, 1fr)) !important;
-
-        width: 100%;
-    }
-
-    #profileGrid {
+            1fr 1fr !important;
 
         width: 100% !important;
+        max-width: none !important;
 
-        max-width: 100% !important;
+        min-height: 430px !important;
     }
 
-    .footprint-trail {
 
-        display: grid !important;
+    /* Restore desktop-style page arrangement */
+    #archiveView .book-page {
+        min-width: 0 !important;
 
-        grid-template-columns:
-            minmax(0, 1fr) !important;
-
-        width: 100% !important;
-
-        max-width: 100% !important;
-    }
-
-    .footprint-record,
-    .footprint-record:nth-child(even) {
-
-        width: 100%;
+        min-height: 500px !important;
 
         transform: none !important;
     }
 
-    .footprint-detail-body {
 
-        display: grid !important;
-
-        grid-template-columns:
-            minmax(0, 1fr) !important;
-
-        gap: 24px !important;
-    }
-
-    .footprint-detail-head {
-
-        flex-direction: column !important;
-
-        align-items: flex-start !important;
-
-        gap: 14px !important;
+    #archiveView .book-page-left {
+        border-radius:
+            10px 1px 1px 10px !important;
     }
 
 
-    /* ========================================================
-       INTEGRITY
-       ======================================================== */
-
-    .integrity-summary-strip {
-
-        display: grid !important;
-
-        grid-template-columns:
-            minmax(0, 1fr) !important;
-    }
-
-    .integrity-summary-strip > div {
-
-        padding:
-            18px 0 !important;
-
-        border-left: 0 !important;
-
-        border-bottom:
-            1px solid rgba(239, 231, 216, 0.09);
-    }
-
-    .integrity-principles,
-    .integrity-events {
-
-        display: grid !important;
-
-        grid-template-columns:
-            minmax(0, 1fr) !important;
-    }
-
-    /*
-       Blockchain history can be wider than a phone.
-       Scroll horizontally instead of cutting it off.
-    */
-
-    .integrity-chain {
-
-        width: 100%;
-
-        overflow-x: auto !important;
-
-        overflow-y: hidden;
-
-        -webkit-overflow-scrolling: touch;
+    #archiveView .book-page-right {
+        border-radius:
+            1px 10px 10px 1px !important;
     }
 
 
-    /* ========================================================
-       REPORT FORM
-       ======================================================== */
+    /* Vertical spine */
+    #archiveView .book-spine {
+        top: 8px !important;
+        bottom: 8px !important;
 
-    .form-section,
-    .two-column {
+        left: 50% !important;
+        right: auto !important;
 
-        display: grid !important;
+        width: 12px !important;
+        height: auto !important;
 
-        grid-template-columns:
-            minmax(0, 1fr) !important;
-
-        gap: 14px !important;
+        transform:
+            translateX(-50%) !important;
     }
 
-    input,
-    textarea,
-    select {
 
-        width: 100%;
+    /* Put arrows BESIDE the book again */
+    #archiveView .book-arrow {
+        position: relative !important;
 
-        min-width: 0;
+        left: auto !important;
+        right: auto !important;
+        bottom: auto !important;
 
-        font-size: 16px;
+        width: 20px !important;
+
+        padding: 0 !important;
+
+        z-index: 20;
     }
 
-    /*
-       16px prevents iPhone browsers from zooming into
-       form fields when tapped.
-    */
 
-    .report-map {
-        width: 100%;
-
-        height: 300px !important;
+    /* Less padding because each page is half-screen */
+    #archiveView .book-page-content {
+        padding: 22px 12px !important;
     }
 
-    .report-map-heading,
-    .privacy-note {
 
-        flex-direction: column !important;
-
-        align-items: flex-start !important;
+    #archiveView .book-meta-grid {
+        grid-template-columns: 1fr !important;
 
         gap: 10px !important;
     }
 
 
-    /* ========================================================
-       MAP
-       ======================================================== */
+    #archiveView .book-controls-copy {
+        margin-top: 16px !important;
 
-    .map-workspace {
-
-        display: block !important;
-
-        width: 100%;
+        padding: 0 24px !important;
     }
 
-    #cityMap {
+}/* =========================================================
+   MOBILE BOOK — HORIZONTAL SWIPE
+   ========================================================= */
 
-        width: 100%;
+@media (max-width: 680px) {
 
-        min-height: 500px !important;
-    }
+    #archiveView .civic-book-stage {
+        grid-template-columns: 22px minmax(0, 1fr) 22px !important;
+        gap: 3px !important;
 
-    .map-sidebar {
-
-        width: 135px !important;
-
-        max-height: 430px;
-
-        overflow-y: auto;
+        min-height: 0 !important;
+        height: auto !important;
     }
 
 
-    /* ========================================================
-       DRAWERS / MODALS
-       ======================================================== */
-
-    .case-drawer {
+    /* THIS is now the horizontal scrolling area */
+    #archiveView .civic-book {
+        display: flex !important;
 
         width: 100% !important;
+        max-width: none !important;
 
+        height: 490px !important;
+        min-height: 0 !important;
+
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+
+        scroll-snap-type: x mandatory !important;
+        scroll-behavior: smooth !important;
+
+        -webkit-overflow-scrolling: touch;
+
+        scrollbar-width: none;
+
+        position: relative !important;
+    }
+
+    #archiveView .civic-book::-webkit-scrollbar {
+        display: none;
+    }
+
+
+    /* Each book page becomes one full swipe screen */
+    #archiveView .book-page {
+        flex: 0 0 100% !important;
+
+        width: 100% !important;
+        min-width: 100% !important;
         max-width: 100% !important;
 
-        padding:
-            55px 18px
-            90px !important;
+        height: 490px !important;
+        min-height: 490px !important;
+        max-height: 490px !important;
+
+        box-sizing: border-box !important;
+
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+
+        scroll-snap-align: start !important;
+
+        transform: none !important;
+
+        padding: 18px 16px !important;
+
+        scrollbar-width: none;
     }
 
-    .case-status-strip {
-
-        grid-template-columns:
-            1fr !important;
+    #archiveView .book-page::-webkit-scrollbar {
+        display: none;
     }
 
 
-    /* ========================================================
-       GENERAL OVERFLOW PROTECTION
-       ======================================================== */
-
-    img,
-    video,
-    canvas,
-    svg {
-
-        max-width: 100%;
+    /* LEFT PAGE */
+    #archiveView .book-page-left {
+        border-radius: 10px !important;
     }
 
-    button,
-    input,
-    textarea,
-    select {
 
-        max-width: 100%;
+    /* RIGHT PAGE */
+    #archiveView .book-page-right {
+        border-radius: 10px !important;
+    }
+
+
+    /*
+       Hide desktop spine on mobile because the pages
+       now behave like horizontally sliding paper.
+    */
+    #archiveView .book-spine {
+        display: none !important;
+    }
+
+
+    /* Make the information more compact */
+    #archiveView .book-category,
+    #archiveView .book-right-title {
+        font-size: 24px !important;
+        line-height: 1 !important;
+
+        margin-top: 12px !important;
+        margin-bottom: 10px !important;
+    }
+
+
+    #archiveView .book-description {
+        font-size: 11px !important;
+        line-height: 1.5 !important;
+    }
+
+
+    #archiveView .book-meta-grid {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+
+        gap: 10px !important;
+
+        margin-top: 15px !important;
+    }
+
+
+    #archiveView .book-route {
+        margin-top: 12px !important;
+    }
+
+
+    #archiveView .book-route-step {
+        padding-block: 5px !important;
+    }
+
+
+    /* Previous / next complaint arrows */
+    #archiveView .book-arrow {
+        position: relative !important;
+
+        left: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+
+        width: 22px !important;
+
+        z-index: 20;
+    }
+
+
+    #archiveView .book-controls-copy {
+        margin-top: 10px !important;
+        padding: 0 25px !important;
     }
 
 }
 
+/* =========================================================
+   MOBILE CONTINUOUS PAGE — SEAMLESS SECTION TRANSITIONS
+   ========================================================= */
 
-/* ============================================================
-   VERY SMALL PHONES
-   ============================================================ */
+@media (max-width: 680px) {
 
-@media (max-width: 430px) {
+    /* Remove the old "separate page" spacing */
+    #archiveView .inner-page-shell,
+    #trackView .inner-page-shell,
+    #integrityView .inner-page-shell,
+    #profileView .inner-page-shell {
+        padding-top: 38px !important;
+        padding-bottom: 38px !important;
+    }
+
+
+    /* No artificial space between the actual views */
+    #archiveView,
+    #trackView,
+    #integrityView,
+    #profileView {
+        margin: 0 !important;
+
+        min-height: 0 !important;
+        height: auto !important;
+    }
+
+
+    /* Specifically reduce the gap AFTER Open Files */
+    #archiveView .inner-page-shell {
+        padding-bottom: 28px !important;
+    }
+
+
+    /* TRACES starts relatively quickly */
+    #trackView .inner-page-shell {
+        padding-top: 28px !important;
+        padding-bottom: 34px !important;
+    }
+
+
+    /* INTEGRITY */
+    #integrityView .inner-page-shell {
+        padding-top: 32px !important;
+        padding-bottom: 34px !important;
+    }
+
+
+    /* YOUR FILES */
+    #profileView .inner-page-shell {
+        padding-top: 32px !important;
+    }
+
 
     /*
-       IMPORTANT:
-       Your old CSS hides WATER here.
-       Force it back.
+       Thin divider makes the next section feel like
+       continuation rather than another separate webpage.
     */
-
-    .marker-water,
-    .marker-sanitation,
-    .marker-light,
-    .marker-road {
-
-        display: block !important;
+    #trackView,
+    #integrityView,
+    #profileView {
+        border-top:
+            1px solid rgba(197, 154, 98, 0.16);
     }
 
+}
+@media (max-width: 680px) {
 
-    .main-nav .nav-link {
-
-        font-size: 6.3px !important;
-
-        letter-spacing:
-            0.02em !important;
+    #profileView .footprint-trail::before {
+        display: none !important;
+        content: none !important;
     }
 
+}
 
-    .archive-status-ledger,
-    .profile-summary {
+@media (max-width: 680px) {
 
-        grid-template-columns:
-            1fr 1fr !important;
+    /* Give FILES CREATED the same vertical line as the other stats */
+    #profileView .profile-summary > div:first-child {
+        border-left: 1px solid rgba(197, 154, 98, 0.28) !important;
+        padding-left: 14px !important;
     }
 
+}
 
-    .inner-page-shell,
-    .track-view .narrow-page,
-    .page-shell,
-    .report-shell {
+/* =========================================================
+   INTERNAL PAGES — DUSTY ROSE ACCENTS
+   ========================================================= */
 
-        width:
-            calc(100% - 22px) !important;
+:root {
+    --cityfile-rose: #c78396;
+    --cityfile-rose-soft: rgba(199, 131, 150, 0.16);
+    --cityfile-rose-muted: #a96f82;
+}
+
+
+/* ---------------- OPEN FILES ---------------- */
+
+/* Small archive heading */
+#archiveView .section-label {
+    color: var(--cityfile-rose) !important;
+}
+
+/* Add a subtle rose emphasis to the manifesto */
+#archiveView .archive-manifesto strong {
+    color: #d9a0af !important;
+}
+
+/* Keep book itself mostly aged/ivory */
+#archiveView .book-file-number,
+#archiveView .book-description-label {
+    color: var(--cityfile-rose-muted) !important;
+}
+
+
+/* ---------------- TRACK / TRACES ---------------- */
+
+#trackView .section-label {
+    color: var(--cityfile-rose) !important;
+}
+
+/* "not the promise." */
+#trackView .track-lookup-heading h2 em {
+    color: #d09aad !important;
+}
+
+/* Give the registry a tiny bit of colour */
+#trackView .track-registry-search label,
+#trackView .track-registry-search small {
+    color: var(--cityfile-rose-muted) !important;
+}
+
+
+/* ---------------- INTEGRITY ---------------- */
+
+#integrityView .section-label {
+    color: var(--cityfile-rose) !important;
+}
+
+/* Second line of the giant heading */
+#integrityView .integrity-hero h2 em {
+    color: #c994a6 !important;
+}
+
+/* Blockchain heading accents */
+#integrityView .chain-intro small,
+#integrityView .chain-status-line strong {
+    color: var(--cityfile-rose) !important;
+}
+
+
+/* ---------------- YOUR FILES ---------------- */
+
+#profileView .section-label {
+    color: var(--cityfile-rose) !important;
+}
+
+#profileView .footprint-heading small {
+    color: var(--cityfile-rose) !important;
+}
+
+/* Empty state */
+#profileView .profile-empty strong {
+    color: #d5a0af !important;
+}
+
+/* Stats — values stay readable but slightly warmer */
+#profileView .profile-summary strong {
+    color: #f0d9df !important;
+}
+
+
+/* ---------------- SMALL DETAILS ---------------- */
+
+/* Rose tint when interacting with internal-page text actions */
+#archiveView .text-action:hover,
+#trackView .text-action:hover,
+#integrityView .text-action:hover,
+#profileView .text-action:hover {
+    color: #e0a9b8 !important;
+}
+
+/* =========================================================
+   CITYFILE — ATMOSPHERIC SCROLL ANIMATIONS
+   ========================================================= */
+
+/* Elements waiting to enter */
+.cf-reveal {
+    opacity: 0;
+    transform: translateY(34px);
+    filter: blur(3px);
+
+    transition:
+        opacity 0.8s cubic-bezier(.22, 1, .36, 1),
+        transform 0.8s cubic-bezier(.22, 1, .36, 1),
+        filter 0.8s ease;
+}
+
+.cf-reveal.cf-visible {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+}
+
+
+/* ---------- BIG HEADINGS ---------- */
+
+#archiveView h2,
+#trackView h2,
+#integrityView h2,
+#profileView h2 {
+    transition:
+        transform 0.9s cubic-bezier(.22, 1, .36, 1),
+        opacity 0.9s ease;
+}
+
+
+/* ---------- SMALL LABELS ---------- */
+
+.cf-reveal.section-label,
+.cf-reveal .section-label {
+    transition-delay: 0.05s;
+}
+
+
+/* ---------- OPEN FILES ---------- */
+
+#archiveView .archive-manifesto.cf-reveal {
+    transition-delay: 0.12s;
+}
+
+#archiveView .archive-status-ledger.cf-reveal {
+    transition-delay: 0.18s;
+}
+
+#archiveView .civic-book-stage.cf-reveal {
+    transition-delay: 0.12s;
+}
+
+
+/* Book gets a tiny physical entrance */
+
+#archiveView .civic-book-stage.cf-reveal {
+    transform: translateY(42px) scale(.985);
+}
+
+#archiveView .civic-book-stage.cf-visible {
+    transform: translateY(0) scale(1);
+}
+
+
+/* ---------- TRACK ---------- */
+
+#trackView .track-registry-search.cf-reveal {
+    transition-delay: .12s;
+}
+
+
+/* The important pink phrase subtly floats */
+
+#trackView .track-lookup-heading h2 em {
+    display: inline-block;
+
+    animation:
+        cityfileTextDrift 5s ease-in-out infinite;
+}
+
+@keyframes cityfileTextDrift {
+
+    0%, 100% {
+        transform: translateY(0);
     }
 
+    50% {
+        transform: translateY(-4px);
+    }
+}
 
-    .book-page-content {
 
-        padding:
-            24px 17px !important;
+/* ---------- INTEGRITY ---------- */
+
+#integrityView .integrity-explainer.cf-reveal {
+    transition-delay: .12s;
+}
+
+#integrityView .chain-intro.cf-reveal {
+    transition-delay: .16s;
+}
+
+#integrityView .integrity-chain-stage.cf-reveal {
+    transition-delay: .2s;
+}
+
+
+/* Blockchain status pulse */
+
+#integrityView .chain-status-dot {
+    animation: cityfileChainPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes cityfileChainPulse {
+
+    0%, 100% {
+        opacity: .45;
+        box-shadow: 0 0 0 rgba(199, 131, 150, 0);
     }
 
+    50% {
+        opacity: 1;
+        box-shadow:
+            0 0 0 5px rgba(199, 131, 150, .08),
+            0 0 18px rgba(199, 131, 150, .32);
+    }
+}
+
+
+/* ---------- YOUR FILES ---------- */
+
+#profileView .profile-summary.cf-reveal {
+    transition-delay: .12s;
+}
+
+#profileView .footprint-section.cf-reveal {
+    transition-delay: .18s;
+}
+
+
+/* ---------- SUBTLE MOVING ROSE GLOW ---------- */
+
+#archiveView,
+#trackView,
+#integrityView,
+#profileView {
+    isolation: isolate;
+}
+
+#archiveView::after,
+#trackView::after,
+#integrityView::after,
+#profileView::after {
+
+    content: "";
+
+    position: absolute;
+
+    width: 340px;
+    height: 340px;
+
+    border-radius: 50%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(199, 131, 150, .055),
+            transparent 68%
+        );
+
+    pointer-events: none;
+    z-index: -1;
+
+    animation:
+        cityfileAmbientDrift 12s ease-in-out infinite alternate;
+}
+
+#archiveView::after {
+    top: 24%;
+    right: -150px;
+}
+
+#trackView::after {
+    top: 30%;
+    left: -170px;
+}
+
+#integrityView::after {
+    top: 20%;
+    right: -140px;
+}
+
+#profileView::after {
+    top: 25%;
+    left: -150px;
+}
+
+@keyframes cityfileAmbientDrift {
+
+    from {
+        transform: translateY(-30px);
+    }
+
+    to {
+        transform: translateY(90px);
+    }
+}
+
+
+/* ---------- ACCESSIBILITY ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+
+    .cf-reveal {
+        opacity: 1;
+        transform: none;
+        filter: none;
+        transition: none;
+    }
+
+    #trackView .track-lookup-heading h2 em,
+    #integrityView .chain-status-dot,
+    #archiveView::after,
+    #trackView::after,
+    #integrityView::after,
+    #profileView::after {
+        animation: none;
+    }
 }

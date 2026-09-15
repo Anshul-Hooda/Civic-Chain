@@ -4471,10 +4471,6 @@ function renderProfileFiles() {
                 style="grid-column:1/-1"
             >
 
-                <span class="semantic-empty-number">
-                    00
-                </span>
-
                 <strong>
                     NO FOOTPRINTS YET.
                 </strong>
@@ -7140,3 +7136,74 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
 });
+
+/* =========================================================
+   CITYFILE — MOBILE CONTINUOUS PAGE
+   ========================================================= */
+
+function enableMobileContinuousPage() {
+
+    if (window.innerWidth > 680) {
+        return;
+    }
+
+    const mobileSections = [
+        "homeView",
+        "archiveView",
+        "trackView",
+        "integrityView",
+        "profileView"
+    ];
+
+    mobileSections.forEach(id => {
+
+        const section =
+            document.getElementById(id);
+
+        if (!section) {
+            console.warn(
+                "Mobile section missing:",
+                id
+            );
+
+            return;
+        }
+
+        /*
+           IMPORTANT:
+           Existing CITYFILE uses active-view
+           to decide which page exists visually.
+
+           On mobile we deliberately make ALL
+           internal sections active.
+        */
+
+        section.classList.add(
+            "active-view"
+        );
+
+    });
+
+}
+
+
+/*
+   Run AFTER CITYFILE's normal initialization.
+*/
+
+window.addEventListener(
+    "load",
+    () => {
+
+        if (window.innerWidth <= 680) {
+
+            setTimeout(
+                enableMobileContinuousPage,
+                100
+            );
+
+        }
+
+    }
+);
+
