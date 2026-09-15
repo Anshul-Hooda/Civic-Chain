@@ -119,7 +119,22 @@ function formatComplaintId(id) {
 
 
 function formatDate(value) {
-    const time = Date.parse(value || "");
+    if (!value) {
+        return "TIME NOT RECORDED";
+    }
+
+    let dateString = String(value).trim();
+
+    // Backend stores timestamps in UTC without timezone information.
+    // Tell JavaScript explicitly that the timestamp is UTC.
+    if (
+        !dateString.endsWith("Z") &&
+        !/[+-]\d{2}:\d{2}$/.test(dateString)
+    ) {
+        dateString += "Z";
+    }
+
+    const time = Date.parse(dateString);
 
     if (!Number.isFinite(time)) {
         return "TIME NOT RECORDED";
@@ -128,12 +143,12 @@ function formatDate(value) {
     return new Intl.DateTimeFormat(
         "en-IN",
         {
+            timeZone: "Asia/Kolkata",
             dateStyle: "medium",
             timeStyle: "short"
         }
     ).format(new Date(time));
 }
-
 
 function complaintAgeMs(complaint) {
     const created = Date.parse(
