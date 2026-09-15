@@ -5999,80 +5999,957 @@ select:focus-visible {
     }
 }
 
-/* =========================================================
-   MOBILE NAVIGATION — KEEP ALL CITYFILE SECTIONS ACCESSIBLE
-   ========================================================= */
+/* ============================================================
+   CITYFILE — FINAL MOBILE OVERRIDE
+   Desktop is NOT affected.
+   Paste this at the VERY END of style.css
+   ============================================================ */
 
 @media (max-width: 680px) {
 
+    /* ------------------------------
+       GLOBAL MOBILE
+       ------------------------------ */
+
+    html,
+    body {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden !important;
+    }
+
+    body {
+        padding-bottom: 72px;
+    }
+
+    * {
+        max-width: 100%;
+    }
+
+
+    /* ========================================================
+       HEADER
+       ======================================================== */
+
     .site-header {
-        grid-template-columns: auto 1fr auto;
-        padding: 0 14px;
+        grid-template-columns: 1fr auto !important;
+
+        height: 64px;
+        min-height: 64px;
+
+        padding: 0 14px !important;
         gap: 10px;
     }
 
-    /* Restore navigation — old CSS hides this completely */
+    .brand-symbol {
+        width: 34px;
+        height: 34px;
+    }
+
+    .brand-text strong {
+        font-size: 12px;
+    }
+
+    .brand-text small {
+        display: none;
+    }
+
+    .report-button {
+        padding: 10px 12px !important;
+    }
+
+
+    /* ========================================================
+       MOBILE BOTTOM NAVIGATION
+       Never hide FILES / TRACES / INTEGRITY / YOUR FILES
+       ======================================================== */
+
     .main-nav {
         display: flex !important;
 
-        position: fixed;
+        position: fixed !important;
+
+        z-index: 9999;
+
         left: 0;
         right: 0;
         bottom: 0;
 
-        z-index: 8000;
+        width: 100%;
 
-        height: 62px;
-        padding: 0 8px;
+        height: 66px;
 
-        justify-content: space-around;
+        padding:
+            0
+            max(5px, env(safe-area-inset-right))
+            env(safe-area-inset-bottom)
+            max(5px, env(safe-area-inset-left));
+
         align-items: center;
-        gap: 2px;
+        justify-content: space-around;
 
-        background: rgba(7, 12, 16, 0.97);
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        gap: 0 !important;
+
+        background:
+            rgba(7, 11, 15, 0.97);
+
+        border-top:
+            1px solid rgba(239, 231, 216, 0.12);
 
         backdrop-filter: blur(18px);
         -webkit-backdrop-filter: blur(18px);
     }
 
-    /* Earlier tablet CSS hides links 3, 4 and 5.
-       Restore ALL of them. */
+
+    /* Restore EVERY nav item that older CSS hides */
+
     .main-nav .nav-link,
+    .main-nav .nav-link:nth-child(1),
+    .main-nav .nav-link:nth-child(2),
     .main-nav .nav-link:nth-child(3),
     .main-nav .nav-link:nth-child(4),
     .main-nav .nav-link:nth-child(5) {
+
         display: flex !important;
 
-        flex: 1 1 0;
-        justify-content: center;
-        align-items: center;
+        flex: 1 1 20%;
 
         min-width: 0;
-        padding: 18px 3px;
 
-        font-size: 7px;
-        letter-spacing: 0.06em;
-        white-space: nowrap;
+        height: 100%;
+
+        padding: 0 3px !important;
+
+        align-items: center;
+        justify-content: center;
+
+        text-align: center;
+
+        font-size: 7px !important;
+        line-height: 1.2;
+
+        letter-spacing: 0.04em !important;
+
+        white-space: normal;
     }
 
-    .nav-link.active::after {
-        left: 20%;
-        right: 20%;
-        bottom: 8px;
+    .main-nav .nav-link.active::after {
+        left: 22%;
+        right: 22%;
+        bottom: 7px;
     }
 
-    /* Prevent bottom nav from covering page content */
-    body {
-        padding-bottom: 62px;
+
+    /* ========================================================
+       HOME — STOP USING DESKTOP VIEWPORT AS A CLIPPING BOX
+       ======================================================== */
+
+    .home-view {
+        min-height: auto !important;
+        height: auto !important;
+
+        overflow: visible !important;
     }
 
-    /* Homepage bottom controls need to sit ABOVE mobile nav */
-    .city-explorer-bar {
-        bottom: 74px !important;
+    .city-world {
+        position: relative;
+
+        width: 100%;
+
+        /*
+         More vertical room on phones.
+         Desktop remains untouched.
+        */
+        height: 920px !important;
+        min-height: 920px !important;
+
+        overflow: hidden;
     }
+
+
+    /* ------------------------------
+       HOME INTRODUCTION
+       ------------------------------ */
+
+    .city-introduction {
+        top: 105px !important;
+
+        left: 18px !important;
+        right: 18px !important;
+
+        width: auto !important;
+
+        z-index: 400;
+    }
+
+    .city-introduction h1 {
+        font-size:
+            clamp(42px, 14vw, 60px) !important;
+
+        line-height: 0.9;
+    }
+
+    .city-introduction-copy {
+        max-width: 100% !important;
+
+        font-size: 12px;
+        line-height: 1.6;
+    }
+
+    .home-actions {
+        display: flex;
+        flex-direction: column;
+
+        align-items: stretch;
+
+        gap: 9px;
+
+        width: 100%;
+    }
+
+    .home-primary-action,
+    .home-secondary-action {
+        flex: none !important;
+
+        width: 100%;
+    }
+
+
+    /* ========================================================
+       RESTORE CIVIC PROBLEM MARKERS
+       Older CSS was hiding these.
+       ======================================================== */
+
+    .marker-road,
+    .marker-water,
+    .marker-sanitation,
+    .marker-light {
+        display: block !important;
+    }
+
+    /*
+       Keep marker cards compact so four records can coexist
+       on a narrow screen.
+    */
+
+    .marker-card {
+        width: 118px !important;
+
+        padding: 8px !important;
+    }
+
+    .marker-card strong {
+        font-size: 8px;
+    }
+
+    .marker-card span,
+    .marker-card small {
+        font-size: 6px;
+    }
+
+
+    /* Reposition markers independently */
+
+    .marker-sanitation {
+        left: 15px !important;
+        right: auto !important;
+
+        bottom: 340px !important;
+    }
+
+    .marker-light {
+        right: 15px !important;
+        left: auto !important;
+
+        bottom: 380px !important;
+    }
+
+    .marker-road {
+        left: 25% !important;
+        right: auto !important;
+
+        bottom: 250px !important;
+    }
+
+    .marker-water {
+        right: 14px !important;
+        left: auto !important;
+
+        bottom: 265px !important;
+    }
+
+
+    /* ========================================================
+       CITY PULSE
+       ======================================================== */
 
     .city-pulse {
-        bottom: 142px !important;
+        left: 14px !important;
+        right: 14px !important;
+
+        bottom: 82px !important;
+
+        width: auto !important;
+
+        padding: 10px !important;
     }
+
+    .city-pulse-grid {
+        display: grid;
+
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    .pulse-stat {
+        min-width: 0;
+
+        min-height: 54px !important;
+
+        padding: 8px !important;
+    }
+
+    .pulse-stat strong {
+        font-size: 19px !important;
+    }
+
+    .pulse-stat span {
+        font-size: 6px !important;
+    }
+
+    /*
+       Restore these instead of silently removing information.
+    */
+
+    .pulse-latest,
+    .city-pulse-divider {
+        display: block !important;
+    }
+
+
+    /* ========================================================
+       CITY EXPLORER
+       ======================================================== */
+
+    .city-explorer-bar {
+        position: relative !important;
+
+        left: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+
+        width:
+            calc(100% - 28px) !important;
+
+        margin:
+            18px auto 0 !important;
+
+        flex-direction: column;
+
+        align-items: stretch;
+
+        gap: 10px;
+    }
+
+    .city-explorer-bar > div {
+        width: 100%;
+    }
+
+    .city-explorer-bar button {
+        width: 100%;
+
+        justify-content: space-between;
+    }
+
+
+    /* ========================================================
+       ALL NORMAL CONTENT PAGES
+       FILES / TRACES / INTEGRITY / YOUR FILES
+       ======================================================== */
+
+    .content-view,
+    .map-view,
+    .archive-view,
+    .track-view,
+    .profile-view,
+    .integrity-view {
+
+        min-height: 100svh;
+
+        height: auto !important;
+
+        overflow: visible !important;
+
+        padding-bottom: 90px !important;
+    }
+
+
+    .page-shell,
+    .map-page-shell,
+    .report-shell,
+    .inner-page-shell,
+    .track-view .narrow-page {
+
+        width:
+            calc(100% - 28px) !important;
+
+        max-width: none !important;
+
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+
+
+    /* ========================================================
+       INNER PAGE HERO
+       ======================================================== */
+
+    .inner-hero,
+    .integrity-hero {
+
+        display: grid !important;
+
+        grid-template-columns:
+            minmax(0, 1fr) !important;
+
+        gap: 26px !important;
+
+        padding-bottom: 38px !important;
+    }
+
+    .inner-hero h2,
+    .integrity-hero h2 {
+
+        font-size:
+            clamp(42px, 13vw, 54px) !important;
+
+        overflow-wrap: anywhere;
+    }
+
+    .archive-manifesto,
+    .profile-note,
+    .integrity-explainer {
+
+        padding:
+            20px 0 0 !important;
+
+        border-left: 0 !important;
+
+        border-top:
+            1px solid rgba(197, 154, 98, 0.30);
+    }
+
+
+    /* ========================================================
+       FILES — STATUS LEDGER
+       ======================================================== */
+
+    .archive-status-ledger {
+
+        display: grid !important;
+
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr)) !important;
+
+        width: 100%;
+    }
+
+    .ledger-stat {
+        min-width: 0;
+
+        padding:
+            18px 12px !important;
+    }
+
+
+    /* ========================================================
+       FILES — BOOK
+       Convert desktop open-book layout into vertical mobile book
+       ======================================================== */
+
+    .civic-book-stage {
+
+        position: relative;
+
+        display: block !important;
+
+        width: 100%;
+    }
+
+    .civic-book {
+
+        display: block !important;
+
+        width: 100% !important;
+
+        min-height: 0 !important;
+    }
+
+    .book-page {
+
+        width: 100% !important;
+
+        min-height: 0 !important;
+
+        transform: none !important;
+    }
+
+    .book-page-left {
+        border-radius:
+            10px 10px 0 0 !important;
+    }
+
+    .book-page-right {
+        border-radius:
+            0 0 10px 10px !important;
+    }
+
+    .book-page-content {
+
+        padding:
+            28px 20px !important;
+    }
+
+    .book-spine {
+
+        position: relative !important;
+
+        top: auto !important;
+        bottom: auto !important;
+        left: auto !important;
+        right: auto !important;
+
+        width: 100% !important;
+        height: 12px !important;
+
+        transform: none !important;
+    }
+
+    .book-turn-page {
+        display: none !important;
+    }
+
+    .book-meta-grid {
+
+        grid-template-columns:
+            1fr !important;
+
+        gap: 16px !important;
+    }
+
+    .book-arrow {
+
+        position: static !important;
+
+        width: 44px;
+        height: 44px;
+    }
+
+    .book-controls-copy {
+
+        width: 100%;
+
+        margin-top: 18px !important;
+
+        padding: 0 !important;
+
+        gap: 10px;
+    }
+
+
+    /* ========================================================
+       ARCHIVE / FILE CARDS
+       ======================================================== */
+
+    .archive-toolbar {
+
+        flex-direction: column !important;
+
+        align-items: stretch !important;
+
+        gap: 14px !important;
+    }
+
+    .filter-tabs,
+    .archive-filter-tabs {
+
+        display: flex;
+
+        flex-wrap: wrap;
+
+        gap: 8px;
+    }
+
+    .archive-grid {
+
+        display: grid !important;
+
+        grid-template-columns:
+            minmax(0, 1fr) !important;
+
+        gap: 14px;
+    }
+
+
+    /* ========================================================
+       TRACES / RECORD LOOKUP
+       ======================================================== */
+
+    .track-lookup {
+
+        padding:
+            45px 0
+            35px !important;
+    }
+
+    .track-lookup-heading h2 {
+
+        font-size:
+            clamp(44px, 14vw, 62px) !important;
+
+        overflow-wrap: anywhere;
+    }
+
+    .track-panel {
+
+        width: 100%;
+
+        padding:
+            28px 18px !important;
+
+        margin-top: 20px !important;
+    }
+
+    .track-panel h2 {
+
+        font-size:
+            clamp(38px, 12vw, 52px) !important;
+    }
+
+    .track-search,
+    .track-search-line {
+
+        display: grid !important;
+
+        grid-template-columns:
+            minmax(0, 1fr) !important;
+
+        width: 100%;
+    }
+
+    .track-search input,
+    .track-search-line input {
+
+        width: 100%;
+
+        min-width: 0;
+    }
+
+    .track-search button,
+    .track-search-line button {
+
+        width: 100% !important;
+
+        min-height: 48px;
+
+        margin-top: 8px;
+    }
+
+    .track-registry-search {
+
+        width: 100%;
+
+        margin-top: 35px !important;
+    }
+
+    .track-registry-hint {
+        margin-left: 0 !important;
+    }
+
+
+    /* ========================================================
+       YOUR FILES
+       ======================================================== */
+
+    .profile-summary {
+
+        display: grid !important;
+
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr)) !important;
+
+        width: 100%;
+    }
+
+    #profileGrid {
+
+        width: 100% !important;
+
+        max-width: 100% !important;
+    }
+
+    .footprint-trail {
+
+        display: grid !important;
+
+        grid-template-columns:
+            minmax(0, 1fr) !important;
+
+        width: 100% !important;
+
+        max-width: 100% !important;
+    }
+
+    .footprint-record,
+    .footprint-record:nth-child(even) {
+
+        width: 100%;
+
+        transform: none !important;
+    }
+
+    .footprint-detail-body {
+
+        display: grid !important;
+
+        grid-template-columns:
+            minmax(0, 1fr) !important;
+
+        gap: 24px !important;
+    }
+
+    .footprint-detail-head {
+
+        flex-direction: column !important;
+
+        align-items: flex-start !important;
+
+        gap: 14px !important;
+    }
+
+
+    /* ========================================================
+       INTEGRITY
+       ======================================================== */
+
+    .integrity-summary-strip {
+
+        display: grid !important;
+
+        grid-template-columns:
+            minmax(0, 1fr) !important;
+    }
+
+    .integrity-summary-strip > div {
+
+        padding:
+            18px 0 !important;
+
+        border-left: 0 !important;
+
+        border-bottom:
+            1px solid rgba(239, 231, 216, 0.09);
+    }
+
+    .integrity-principles,
+    .integrity-events {
+
+        display: grid !important;
+
+        grid-template-columns:
+            minmax(0, 1fr) !important;
+    }
+
+    /*
+       Blockchain history can be wider than a phone.
+       Scroll horizontally instead of cutting it off.
+    */
+
+    .integrity-chain {
+
+        width: 100%;
+
+        overflow-x: auto !important;
+
+        overflow-y: hidden;
+
+        -webkit-overflow-scrolling: touch;
+    }
+
+
+    /* ========================================================
+       REPORT FORM
+       ======================================================== */
+
+    .form-section,
+    .two-column {
+
+        display: grid !important;
+
+        grid-template-columns:
+            minmax(0, 1fr) !important;
+
+        gap: 14px !important;
+    }
+
+    input,
+    textarea,
+    select {
+
+        width: 100%;
+
+        min-width: 0;
+
+        font-size: 16px;
+    }
+
+    /*
+       16px prevents iPhone browsers from zooming into
+       form fields when tapped.
+    */
+
+    .report-map {
+        width: 100%;
+
+        height: 300px !important;
+    }
+
+    .report-map-heading,
+    .privacy-note {
+
+        flex-direction: column !important;
+
+        align-items: flex-start !important;
+
+        gap: 10px !important;
+    }
+
+
+    /* ========================================================
+       MAP
+       ======================================================== */
+
+    .map-workspace {
+
+        display: block !important;
+
+        width: 100%;
+    }
+
+    #cityMap {
+
+        width: 100%;
+
+        min-height: 500px !important;
+    }
+
+    .map-sidebar {
+
+        width: 135px !important;
+
+        max-height: 430px;
+
+        overflow-y: auto;
+    }
+
+
+    /* ========================================================
+       DRAWERS / MODALS
+       ======================================================== */
+
+    .case-drawer {
+
+        width: 100% !important;
+
+        max-width: 100% !important;
+
+        padding:
+            55px 18px
+            90px !important;
+    }
+
+    .case-status-strip {
+
+        grid-template-columns:
+            1fr !important;
+    }
+
+
+    /* ========================================================
+       GENERAL OVERFLOW PROTECTION
+       ======================================================== */
+
+    img,
+    video,
+    canvas,
+    svg {
+
+        max-width: 100%;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+
+        max-width: 100%;
+    }
+
+}
+
+
+/* ============================================================
+   VERY SMALL PHONES
+   ============================================================ */
+
+@media (max-width: 430px) {
+
+    /*
+       IMPORTANT:
+       Your old CSS hides WATER here.
+       Force it back.
+    */
+
+    .marker-water,
+    .marker-sanitation,
+    .marker-light,
+    .marker-road {
+
+        display: block !important;
+    }
+
+
+    .main-nav .nav-link {
+
+        font-size: 6.3px !important;
+
+        letter-spacing:
+            0.02em !important;
+    }
+
+
+    .archive-status-ledger,
+    .profile-summary {
+
+        grid-template-columns:
+            1fr 1fr !important;
+    }
+
+
+    .inner-page-shell,
+    .track-view .narrow-page,
+    .page-shell,
+    .report-shell {
+
+        width:
+            calc(100% - 22px) !important;
+    }
+
+
+    .book-page-content {
+
+        padding:
+            24px 17px !important;
+    }
+
 }
