@@ -5,6 +5,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from blockchain import blockchain
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 import models
 import schemas
@@ -73,6 +74,8 @@ app = FastAPI(
     description="Backend API for Civic Complaint Management System",
     version="1.0"
 )
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
