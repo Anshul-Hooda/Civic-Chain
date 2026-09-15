@@ -4,7 +4,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 
-DATABASE_URL = "sqlite:///./civic_complaints.db"
+DATABASE_PATH = os.getenv(
+    "DATABASE_PATH",
+    "./civic_complaints.db"
+)
+
+DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
 engine = create_engine(
     DATABASE_URL,
