@@ -76,11 +76,6 @@ app = FastAPI(
 )
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
-
-@app.get("/deployment-test")
-def deployment_test():
-    return {"version": "CITYFILES-ASSETS-FIX-1"}
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
