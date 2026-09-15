@@ -1,4 +1,7 @@
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL =
+    window.location.port === "3000"
+        ? "http://127.0.0.1:8000"
+        : "";
 
 
 // =====================================================
@@ -99,7 +102,6 @@ function getLocation() {
     );
 }
 
-
 // =====================================================
 // LOAD DATABASE OPTIONS
 // =====================================================
@@ -155,8 +157,9 @@ async function loadDropdownData() {
             "Add Department +"
         );
 
+    }
 
-    } catch (error) {
+    catch (error) {
 
         console.error(
             "Error loading dropdown data:",
@@ -164,12 +167,10 @@ async function loadDropdownData() {
         );
 
         alert(
-            "Could not connect to the backend. " +
-            "Please make sure FastAPI is running."
+            "Could not load data from the database."
         );
     }
 }
-
 
 // =====================================================
 // POPULATE SELECT

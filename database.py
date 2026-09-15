@@ -4,17 +4,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "mysql+pymysql://root:YOUR_PASSWORD@localhost/civic_complaints"
-)
-
+DATABASE_URL = "sqlite:///./civic_complaints.db"
 
 engine = create_engine(
     DATABASE_URL,
+    connect_args={"check_same_thread": False},
     echo=True
 )
-
 
 SessionLocal = sessionmaker(
     autocommit=False,

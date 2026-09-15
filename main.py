@@ -4,11 +4,68 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from blockchain import blockchain
+from fastapi.responses import FileResponse
 
 import models
 import schemas
 
-from database import get_db
+from database import get_db, engine
+
+models.Base.metadata.create_all(bind=engine)
+from database import SessionLocal
+
+db = SessionLocal()
+
+if db.query(models.City).count() == 0:
+    db.add_all([
+        models.City(city_name="Delhi"),
+        models.City(city_name="Sonipat"),
+        models.City(city_name="Gurugram")
+    ])
+
+if db.query(models.Category).count() == 0:
+    db.add_all([
+        models.Category(category_name="Pothole"),
+        models.Category(category_name="Broken Streetlight"),
+        models.Category(category_name="Water Leakage"),
+        models.Category(category_name="Overflowing Garbage"),
+        models.Category(category_name="Unsafe Road"),
+        models.Category(category_name="Drainage Problem")
+    ])
+
+db.commit()
+
+if db.query(models.Department).count() == 0:
+    delhi = db.query(models.City).filter(
+        models.City.city_name == "Delhi"
+    ).first()
+
+    db.add_all([
+        models.Department(
+            department_name="Roads",
+            city_id=delhi.city_id
+        ),
+        models.Department(
+            department_name="Sanitation",
+            city_id=delhi.city_id
+        ),
+        models.Department(
+            department_name="Water Supply",
+            city_id=delhi.city_id
+        ),
+        models.Department(
+            department_name="Electricity",
+            city_id=delhi.city_id
+        ),
+        models.Department(
+            department_name="Police",
+            city_id=delhi.city_id
+        )
+    ])
+
+    db.commit()
+
+db.close()
 
 
 app = FastAPI(
@@ -33,10 +90,17 @@ app.add_middleware(
 # =========================================================
 
 @app.get("/")
-def home():
-    return {
-        "message": "Civic Complaints API is running!"
-    }
+def home(): 
+    return FileResponse("index.html")
+
+@app.get("/style.css")
+def style():
+    return FileResponse("style.css", media_type="text/css")
+
+
+@app.get("/script.js")
+def script():
+    return FileResponse("script.js", media_type="application/javascript")
 
 
 # =========================================================
