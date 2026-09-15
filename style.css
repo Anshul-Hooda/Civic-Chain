@@ -5782,3 +5782,219 @@ select:focus-visible {
 
     transform: translateX(5px);
 }
+/* =====================================================
+   CITYFILES — HIGH VISIBILITY CURSOR
+   ===================================================== */
+
+@media (pointer: fine) {
+
+    html,
+    body,
+    body * {
+        cursor: none !important;
+    }
+
+
+    /* MAIN CURSOR */
+
+    .cityfile-cursor {
+        position: fixed;
+        left: 0;
+        top: 0;
+
+        width: 28px;
+        height: 28px;
+
+        transform: translate(-50%, -50%);
+
+        border: 2px solid #f1e6cf;
+        border-radius: 50%;
+
+        pointer-events: none;
+        z-index: 2147483647;
+
+        opacity: 1;
+
+        box-shadow:
+            0 0 4px #f1e6cf,
+            0 0 10px rgba(241, 230, 207, 0.75),
+            0 0 22px rgba(156, 105, 176, 0.65);
+
+        transition:
+            width 0.15s ease,
+            height 0.15s ease,
+            border-color 0.15s ease,
+            box-shadow 0.15s ease;
+    }
+
+    /* BRIGHT CENTER DOT */
+
+    .cursor-core {
+        position: absolute;
+
+        left: 50%;
+        top: 50%;
+
+        width: 7px;
+        height: 7px;
+
+        transform: translate(-50%, -50%);
+
+        border-radius: 50%;
+
+        background: #c43c58;
+
+        box-shadow:
+            0 0 4px #ffffff,
+            0 0 8px #c43c58,
+            0 0 16px rgba(196, 60, 88, 0.95),
+            0 0 30px rgba(196, 60, 88, 0.6);
+    }
+
+
+    /* LARGE LIGHT AROUND CURSOR */
+
+    .cityfile-cursor-glow {
+        position: fixed;
+
+        left: 0;
+        top: 0;
+
+        width: 260px;
+        height: 260px;
+
+        transform: translate(-50%, -50%);
+
+        pointer-events: none;
+        z-index: 999999;
+
+        border-radius: 50%;
+
+        background: radial-gradient(
+            circle,
+            rgba(244, 229, 211, 0.22) 0%,
+            rgba(190, 154, 201, 0.16) 15%,
+            rgba(126, 83, 147, 0.12) 32%,
+            rgba(79, 46, 95, 0.07) 50%,
+            transparent 72%
+        );
+
+        filter: blur(14px);
+
+        mix-blend-mode: screen;
+
+        opacity: 1;
+
+        transition:
+            width 0.25s ease,
+            height 0.25s ease,
+            opacity 0.25s ease;
+    }
+
+
+    /* FOUR SCANNER CORNERS */
+
+    .cursor-corner {
+        position: absolute;
+
+        width: 8px;
+        height: 8px;
+
+        opacity: 0;
+
+        transition:
+            opacity 0.15s ease,
+            transform 0.15s ease;
+    }
+
+
+    .corner-tl {
+        top: -7px;
+        left: -7px;
+
+        border-top: 2px solid #f1e6cf;
+        border-left: 2px solid #f1e6cf;
+    }
+
+
+    .corner-tr {
+        top: -7px;
+        right: -7px;
+
+        border-top: 2px solid #f1e6cf;
+        border-right: 2px solid #f1e6cf;
+    }
+
+
+    .corner-bl {
+        bottom: -7px;
+        left: -7px;
+
+        border-bottom: 2px solid #f1e6cf;
+        border-left: 2px solid #f1e6cf;
+    }
+
+
+    .corner-br {
+        bottom: -7px;
+        right: -7px;
+
+        border-bottom: 2px solid #f1e6cf;
+        border-right: 2px solid #f1e6cf;
+    }
+
+
+    /* HOVER OVER CLICKABLE OBJECT */
+
+    .cityfile-cursor.is-target {
+        width: 38px;
+        height: 38px;
+
+        border-color: rgba(241, 230, 207, 0.45);
+
+        box-shadow:
+            0 0 8px rgba(241, 230, 207, 0.7),
+            0 0 20px rgba(156, 105, 176, 0.65);
+    }
+
+
+    .cityfile-cursor.is-target .cursor-corner {
+        opacity: 1;
+    }
+
+
+    .cityfile-cursor.is-target .cursor-core {
+        width: 8px;
+        height: 8px;
+    }
+
+
+    .cityfile-cursor-glow.is-target {
+        width: 330px;
+        height: 330px;
+    }
+
+
+    /* CLICK */
+
+    .cityfile-cursor.is-clicking {
+        width: 20px;
+        height: 20px;
+
+        border-color: #d84461;
+
+        box-shadow:
+            0 0 7px #d84461,
+            0 0 18px rgba(216, 68, 97, 0.8),
+            0 0 35px rgba(216, 68, 97, 0.4);
+    }
+}
+
+
+@media (pointer: coarse) {
+
+    .cityfile-cursor,
+    .cityfile-cursor-glow {
+        display: none !important;
+    }
+}

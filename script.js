@@ -7011,3 +7011,117 @@ window.addEventListener(
         );
     }
 );
+
+/* =====================================================
+   CITYFILES — CUSTOM CURSOR
+   ===================================================== */
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const cursor = document.querySelector(".cityfile-cursor");
+    const glow = document.querySelector(".cityfile-cursor-glow");
+
+    if (!cursor || !glow) {
+        console.log("CITYFILES cursor elements not found");
+        return;
+    }
+
+    let mouseX = 0;
+    let mouseY = 0;
+
+    let glowX = 0;
+    let glowY = 0;
+
+
+    /* -----------------------------------------
+       MOVE CURSOR
+       ----------------------------------------- */
+
+    document.addEventListener("mousemove", function (event) {
+
+        mouseX = event.clientX;
+        mouseY = event.clientY;
+
+        cursor.style.left = mouseX + "px";
+        cursor.style.top = mouseY + "px";
+
+        cursor.style.opacity = "1";
+
+
+        /* Detect clickable elements */
+
+        const clickable = event.target.closest(
+            "a, button, [role='button'], input, select, label, .clickable"
+        );
+
+        if (clickable) {
+
+            cursor.classList.add("is-target");
+            glow.classList.add("is-target");
+
+        } else {
+
+            cursor.classList.remove("is-target");
+            glow.classList.remove("is-target");
+
+        }
+
+    });
+
+
+    /* -----------------------------------------
+       SMOOTH GLOW FOLLOW
+       ----------------------------------------- */
+
+    function moveGlow() {
+
+        glowX += (mouseX - glowX) * 0.15;
+        glowY += (mouseY - glowY) * 0.15;
+
+        glow.style.left = glowX + "px";
+        glow.style.top = glowY + "px";
+
+        requestAnimationFrame(moveGlow);
+    }
+
+    moveGlow();
+
+
+    /* -----------------------------------------
+       CLICK ANIMATION
+       ----------------------------------------- */
+
+    document.addEventListener("mousedown", function () {
+
+        cursor.classList.add("is-clicking");
+
+    });
+
+
+    document.addEventListener("mouseup", function () {
+
+        cursor.classList.remove("is-clicking");
+
+    });
+
+
+    /* -----------------------------------------
+       LEAVING WINDOW
+       ----------------------------------------- */
+
+    document.addEventListener("mouseleave", function () {
+
+        cursor.style.opacity = "0";
+        glow.style.opacity = "0";
+
+    });
+
+
+    document.addEventListener("mouseenter", function () {
+
+        cursor.style.opacity = "1";
+        glow.style.opacity = "1";
+
+    });
+
+});
