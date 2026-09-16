@@ -6873,8 +6873,8 @@ window.closeCaseOverlay =
 window.showView =
     showView;
 
-window.openMapFor =
-    openMapFor;
+//window.openMapFor =
+//   openMapFor; 
 
 window.trackComplaint =
     trackComplaint;
