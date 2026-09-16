@@ -395,7 +395,6 @@ async function fetchJSON(
 /* ============================================================
    NAVIGATION
    ============================================================ */
-
 function showView(viewName) {
     const requested = document.querySelector(
         `[data-view-name="${viewName}"]`
@@ -405,78 +404,14 @@ function showView(viewName) {
         return;
     }
 
-    const isMobile = window.matchMedia("(max-width: 680px)").matches;
-
-    const continuousMobileViews = [
-        "home",
-        "archive",
-        "track",
-        "integrity",
-        "profile"
-    ];
-
-    /*
-       MOBILE:
-       Home/archive/track/integrity/profile are one continuous page.
-       Report and map are separate screens.
-    */
-    if (isMobile) {
-
-        if (viewName === "report" || viewName === "map") {
-
-            document.body.classList.add("mobile-separate-view");
-
-            document.querySelectorAll(".view").forEach(view => {
-                view.classList.toggle(
-                    "active-view",
-                    view === requested
-                );
-            });
-
-        } else if (continuousMobileViews.includes(viewName)) {
-
-            document.body.classList.remove("mobile-separate-view");
-
-            // Remove report/map active state
-            document
-                .querySelectorAll(".view")
-                .forEach(view => {
-                    view.classList.remove("active-view");
-                });
-
-            // Home is the normal active state
-            document
-                .querySelector('[data-view-name="home"]')
-                ?.classList.add("active-view");
-
-            /*
-               Scroll to the requested section instead of
-               treating it like a separate desktop screen.
-            */
-            requested.scrollIntoView({
-                behavior: "smooth",
-                block: "start"
-            });
-        }
-
-    } else {
-
-        // DESKTOP — original behaviour
-        document
-            .querySelectorAll(".view")
-            .forEach(view => {
-                view.classList.toggle(
-                    "active-view",
-                    view === requested
-                );
-            });
-
-        window.scrollTo({
-            top: 0,
-            behavior: "auto"
+    document
+        .querySelectorAll(".view")
+        .forEach(view => {
+            view.classList.toggle(
+                "active-view",
+                view === requested
+            );
         });
-    }
-
 
     document
         .querySelectorAll(".nav-link")
@@ -487,14 +422,10 @@ function showView(viewName) {
             );
         });
 
-
-    if (viewName === "report" || viewName === "map") {
-        window.scrollTo({
-            top: 0,
-            behavior: "auto"
-        });
-    }
-
+    window.scrollTo({
+        top: 0,
+        behavior: "auto"
+    });
 
     if (viewName === "map") {
         setTimeout(() => {
@@ -504,14 +435,12 @@ function showView(viewName) {
         }, 100);
     }
 
-
     if (viewName === "report") {
         setTimeout(() => {
             initializeReportMap();
             reportMap?.invalidateSize();
         }, 100);
     }
-
 
     if (viewName === "archive") {
         renderArchive();
