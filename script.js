@@ -406,6 +406,18 @@ function showView(viewName) {
         return;
     }
 
+    const isMobile =
+    window.matchMedia("(max-width: 680px)").matches;
+
+const isSeparateMobileView =
+    viewName === "report" ||
+    viewName === "map";
+
+document.body.classList.toggle(
+    "mobile-separate-view",
+    isMobile && isSeparateMobileView
+);
+
     document
         .querySelectorAll(".view")
         .forEach(
