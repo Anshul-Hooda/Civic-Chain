@@ -395,10 +395,12 @@ async function fetchJSON(
 /* ============================================================
    NAVIGATION
    ============================================================ */
+
 function showView(viewName) {
-    const requested = document.querySelector(
-        `[data-view-name="${viewName}"]`
-    );
+    const requested =
+        document.querySelector(
+            `[data-view-name="${viewName}"]`
+        );
 
     if (!requested) {
         return;
@@ -406,21 +408,25 @@ function showView(viewName) {
 
     document
         .querySelectorAll(".view")
-        .forEach(view => {
-            view.classList.toggle(
-                "active-view",
-                view === requested
-            );
-        });
+        .forEach(
+            view => {
+                view.classList.toggle(
+                    "active-view",
+                    view === requested
+                );
+            }
+        );
 
     document
         .querySelectorAll(".nav-link")
-        .forEach(button => {
-            button.classList.toggle(
-                "active",
-                button.dataset.view === viewName
-            );
-        });
+        .forEach(
+            button => {
+                button.classList.toggle(
+                    "active",
+                    button.dataset.view === viewName
+                );
+            }
+        );
 
     window.scrollTo({
         top: 0,
@@ -428,18 +434,24 @@ function showView(viewName) {
     });
 
     if (viewName === "map") {
-        setTimeout(() => {
-            initializeCityMap();
-            cityMap?.invalidateSize();
-            renderMapMarkers();
-        }, 100);
+        setTimeout(
+            () => {
+                initializeCityMap();
+                cityMap?.invalidateSize();
+                renderMapMarkers();
+            },
+            100
+        );
     }
 
     if (viewName === "report") {
-        setTimeout(() => {
-            initializeReportMap();
-            reportMap?.invalidateSize();
-        }, 100);
+        setTimeout(
+            () => {
+                initializeReportMap();
+                reportMap?.invalidateSize();
+            },
+            100
+        );
     }
 
     if (viewName === "archive") {
@@ -454,6 +466,23 @@ function showView(viewName) {
         renderIntegrityEvents();
     }
 }
+
+
+function openMapFor(
+    filter = "all"
+) {
+    activeMapFilter = filter;
+
+    syncMapFilterButtons();
+
+    showView("map");
+
+    setTimeout(
+        renderMapMarkers,
+        120
+    );
+}
+
 
 function initializeNavigation() {
     document.addEventListener(

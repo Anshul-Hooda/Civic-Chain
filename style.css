@@ -6000,6 +6000,65 @@ select:focus-visible {
 }
 
 /* =========================================================
+   MOBILE CONTINUOUS STRUCTURE — TEST FIRST
+   ========================================================= */
+
+@media (max-width: 680px) {
+
+    /*
+       On mobile, these 5 sections form ONE page.
+       This overrides the desktop .view / .active-view system.
+    */
+
+    #homeView,
+    #archiveView,
+    #trackView,
+    #integrityView,
+    #profileView {
+        display: block !important;
+        position: relative !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        pointer-events: auto !important;
+
+        transform: none !important;
+
+        width: 100% !important;
+        height: auto !important;
+
+        min-height: 0 !important;
+    }
+
+
+    /*
+       Internal pages should begin immediately after
+       the previous section instead of behaving like screens.
+    */
+
+    #archiveView,
+    #trackView,
+    #integrityView,
+    #profileView {
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+    }
+
+
+    /*
+       REPORT stays separate.
+       MAP stays separate.
+    */
+
+    #reportView:not(.active-view),
+    #mapView:not(.active-view) {
+        display: none !important;
+    }
+
+}
+
+/* =========================================================
    MOBILE — RESTORE DESKTOP BOOK SHAPE
    ========================================================= */
 
