@@ -6736,3 +6736,29 @@ select:focus-visible {
         animation: none;
     }
 }
+
+/* =========================================================
+   FIX MOBILE REPORT + MAP NAVIGATION
+   ========================================================= */
+
+@media (max-width: 680px) {
+
+    body:has(#reportView.active-view) #homeView,
+    body:has(#reportView.active-view) #archiveView,
+    body:has(#reportView.active-view) #trackView,
+    body:has(#reportView.active-view) #integrityView,
+    body:has(#reportView.active-view) #profileView,
+
+    body:has(#mapView.active-view) #homeView,
+    body:has(#mapView.active-view) #archiveView,
+    body:has(#mapView.active-view) #trackView,
+    body:has(#mapView.active-view) #integrityView,
+    body:has(#mapView.active-view) #profileView {
+        display: none !important;
+    }
+
+    #reportView.active-view,
+    #mapView.active-view {
+        display: block !important;
+    }
+}
