@@ -6737,22 +6737,6 @@ select:focus-visible {
     }
 }
 
-/* Mobile: Report and Map are separate screens */
-@media (max-width: 680px) {
-
-    body.mobile-separate-view #homeView,
-    body.mobile-separate-view #archiveView,
-    body.mobile-separate-view #trackView,
-    body.mobile-separate-view #integrityView,
-    body.mobile-separate-view #profileView {
-        display: none !important;
-    }
-
-    body.mobile-separate-view #reportView.active-view,
-    body.mobile-separate-view #mapView.active-view {
-        display: block !important;
-    }
-}
 
 @media (max-width: 680px) {
     .view {
