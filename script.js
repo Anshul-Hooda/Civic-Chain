@@ -440,10 +440,17 @@ document.body.classList.toggle(
             }
         );
 
+    if (window.innerWidth <= 680) {
+    requested.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+    });
+} else {
     window.scrollTo({
         top: 0,
         behavior: "auto"
     });
+}
 
     if (viewName === "map") {
         setTimeout(

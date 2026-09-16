@@ -6753,3 +6753,9 @@ select:focus-visible {
         display: block !important;
     }
 }
+
+@media (max-width: 680px) {
+    .view {
+        scroll-margin-top: var(--header-height);
+    }
+}
