@@ -27,8 +27,8 @@ if RPC_URL and PRIVATE_KEY and CONTRACT_ADDRESS:
 
     CONTRACT_ADDRESS = Web3.to_checksum_address(CONTRACT_ADDRESS)
 
-   with open("cityproofs_abi.json", "r") as f:
-    CONTRACT_ABI = json.load(f)
+    with open("cityproofs_abi.json", "r") as f:
+        CONTRACT_ABI = json.load(f)
 
     contract = web3.eth.contract(
         address=CONTRACT_ADDRESS,
