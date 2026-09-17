@@ -459,6 +459,18 @@ def add_evidence(
     evidence: schemas.EvidenceCreate,
     db: Session = Depends(get_db)
 ):
+    # Check complaint exists
+    complaint = db.query(models.Complaint).filter(
+        models.Complaint.complaint_id == evidence.complaint_id
+    ).first()
+
+    if not complaint:
+        raise HTTPException(
+            status_code=404,
+            detail="Complaint not found"
+        )
+
+    # Create evidence record
     new_evidence = models.Evidence(
         complaint_id=evidence.complaint_id,
         uploaded_by_officer=evidence.uploaded_by_officer,
@@ -470,6 +482,31 @@ def add_evidence(
     db.add(new_evidence)
     db.commit()
     db.refresh(new_evidence)
+
+    # ---------------------------------------------------------
+    # Record evidence submission on blockchain
+    # ---------------------------------------------------------
+    if evidence.uploaded_by_officer:
+
+        event_data = {
+            "event": "resolution_evidence_submitted",
+            "complaint_id": evidence.complaint_id,
+            "evidence_hash": evidence.file_hash,
+            "description": evidence.description,
+            "actor": "Authority"
+        }
+
+        block = blockchain.add_complaint(
+            evidence.complaint_id,
+            event_data
+        )
+
+        return {
+            "evidence": new_evidence,
+            "blockchain_hash": block.hash,
+            "block_index": block.index,
+            "blockchain_event": "resolution_evidence_submitted"
+        }
 
     return new_evidence
 
