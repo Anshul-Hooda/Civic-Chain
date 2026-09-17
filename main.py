@@ -27,8 +27,8 @@ if RPC_URL and PRIVATE_KEY and CONTRACT_ADDRESS:
 
     CONTRACT_ADDRESS = Web3.to_checksum_address(CONTRACT_ADDRESS)
 
-    with open("CivicProof_abi.json", "r") as f:
-        CONTRACT_ABI = json.load(f)
+   with open("cityproofs_abi.json", "r") as f:
+    CONTRACT_ABI = json.load(f)
 
     contract = web3.eth.contract(
         address=CONTRACT_ADDRESS,
@@ -700,7 +700,6 @@ def add_evidence(
         "description": new_evidence.description,
         "uploaded_at": new_evidence.uploaded_at
     }
-
     if blockchain_result:
         response["blockchain_hash"] = blockchain_result.hash
         response["block_index"] = blockchain_result.index
@@ -712,6 +711,9 @@ def add_evidence(
         response["web3_evidence_hash"] = web3_result["evidence_hash"]
 
     return response
+
+        
+    
 
     
 
