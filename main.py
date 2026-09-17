@@ -610,51 +610,13 @@ def register_evidence_on_web3(
         "evidence_hash": evidence_hash
     }
 
-def register_evidence_on_web3(
-    complaint_id: int,
-    evidence_hash: str,
-    evidence_type: str
-):
-    if not web3 or not contract or not account:
-        return None
 
-    nonce = web3.eth.get_transaction_count(account.address)
 
-    transaction = contract.functions.registerEvidence(
-        int(complaint_id),
-        evidence_hash,
-        evidence_type
-    ).build_transaction({
-        "from": account.address,
-        "nonce": nonce,
-        "gas": 200000,
-        "gasPrice": web3.eth.gas_price,
-        "chainId": web3.eth.chain_id
-    })
-
-    signed_transaction = web3.eth.account.sign_transaction(
-        transaction,
-        PRIVATE_KEY
-    )
-
-    if hasattr(signed_transaction, "raw_transaction"):
-        raw_transaction = signed_transaction.raw_transaction
-    else:
-        raw_transaction = signed_transaction.rawTransaction
-
-    transaction_hash = web3.eth.send_raw_transaction(
-        raw_transaction
-    )
-
-    receipt = web3.eth.wait_for_transaction_receipt(
-        transaction_hash
-    )
-
-    return {
-        "transaction_hash": transaction_hash.hex(),
-        "block_number": receipt.blockNumber,
-        "evidence_hash": evidence_hash
-    }
+    
+        
+    
+   
+   
 #evidence
 
 @app.post("/evidence")
