@@ -12,6 +12,29 @@ import hashlib
 import json
 import os
 
+RPC_URL = os.getenv("RPC_URL")
+PRIVATE_KEY = os.getenv("PRIVATE_KEY")
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
+
+web3 = None
+contract = None
+account = None
+
+if RPC_URL and PRIVATE_KEY and CONTRACT_ADDRESS:
+    web3 = Web3(Web3.HTTPProvider(RPC_URL))
+
+    account = web3.eth.account.from_key(PRIVATE_KEY)
+
+    CONTRACT_ADDRESS = Web3.to_checksum_address(CONTRACT_ADDRESS)
+
+    with open("CivicProof_abi.json", "r") as f:
+        CONTRACT_ABI = json.load(f)
+
+    contract = web3.eth.contract(
+        address=CONTRACT_ADDRESS,
+        abi=CONTRACT_ABI
+    )
+
 import models
 import schemas
 
