@@ -317,6 +317,68 @@ def update_complaint(
     old_status = complaint.status
 
     # ---------------------------------------------------------
+    # R2 RULE:
+    # A complaint cannot be marked Resolved without
+    # resolution evidence submitted by an officer.
+    # ---------------------------------------------------------
+    if data.status is not None:
+
+        if data.status.lower() == "resolved":
+
+            officer_evidence = db.query(models.Evidence).filter(
+                models.Evidence.complaint_id == complaint_id,
+                models.Evidence.uploaded_by_officer.isnot(None)
+            ).first()
+
+            if not officer_evidence:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Complaint cannot be marked Resolved without officer resolution evidence."
+                )
+
+        complaint.status = data.status
+
+    if data.priority is not None:
+        complaint.priority = data.priority
+
+    if data.deadline is not None:
+        complaint.deadline = data.deadline
+
+    db.commit()
+    db.refresh(complaint)
+
+    # ---------------------------------------------------------
+    # Record important status changes on CivicChain
+    # ---------------------------------------------------------
+    blockchain_result = None
+
+    if data.status is not None and old_status != complaint.status:
+
+        blockchain_result = blockchain.add_complaint(
+            complaint_id,
+            {
+                "event": "authority_status_update",
+                "complaint_id": complaint_id,
+                "old_status": old_status,
+                "new_status": complaint.status,
+                "actor": "Authority"
+            }
+        )
+
+    response = {
+        "complaint_id": complaint.complaint_id,
+        "status": complaint.status,
+        "priority": complaint.priority,
+        "deadline": complaint.deadline
+    }
+
+    if blockchain_result:
+        response["blockchain_hash"] = blockchain_result.hash
+        response["block_index"] = blockchain_result.index
+        response["blockchain_event"] = "authority_status_update"
+
+    return response
+    # ---------------------------------------------------------
     # R2: Do not allow RESOLVED without resolution evidence
     # ---------------------------------------------------------
     if data.status is not None and data.status.lower() == "resolved":
@@ -406,7 +468,6 @@ def get_assignments(db: Session = Depends(get_db)):
 # =========================================================
 # COMPLAINT UPDATES
 # =========================================================
-
 @app.post("/complaint-updates")
 def create_complaint_update(
     update: schemas.ComplaintUpdateCreate,
@@ -422,6 +483,26 @@ def create_complaint_update(
             detail="Complaint not found"
         )
 
+    old_status = complaint.status
+
+    # ---------------------------------------------------------
+    # R2 RULE:
+    # Resolved requires officer evidence.
+    # ---------------------------------------------------------
+    if update.status.lower() == "resolved":
+
+        officer_evidence = db.query(models.Evidence).filter(
+            models.Evidence.complaint_id == update.complaint_id,
+            models.Evidence.uploaded_by_officer.isnot(None)
+        ).first()
+
+        if not officer_evidence:
+            raise HTTPException(
+                status_code=400,
+                detail="Complaint cannot be marked Resolved without officer resolution evidence."
+            )
+
+    # Create complaint update record
     new_update = models.ComplaintUpdate(
         complaint_id=update.complaint_id,
         officer_id=update.officer_id,
@@ -429,13 +510,51 @@ def create_complaint_update(
         comment=update.comment
     )
 
+    # Update complaint status
     complaint.status = update.status
 
     db.add(new_update)
     db.commit()
     db.refresh(new_update)
 
-    return new_update
+    # ---------------------------------------------------------
+    # Record status change on CivicChain
+    # ---------------------------------------------------------
+    blockchain_result = None
+
+    if old_status != complaint.status:
+
+        blockchain_result = blockchain.add_complaint(
+            update.complaint_id,
+            {
+                "event": "authority_status_update",
+                "complaint_id": update.complaint_id,
+                "old_status": old_status,
+                "new_status": complaint.status,
+                "officer_id": update.officer_id,
+                "comment": update.comment,
+                "actor": "Authority"
+            }
+        )
+
+    response = {
+        "update_id": new_update.update_id,
+        "complaint_id": new_update.complaint_id,
+        "officer_id": new_update.officer_id,
+        "status": new_update.status,
+        "comment": new_update.comment,
+        "updated_at": new_update.updated_at
+    }
+
+    if blockchain_result:
+        response["blockchain_hash"] = blockchain_result.hash
+        response["block_index"] = blockchain_result.index
+        response["blockchain_event"] = "authority_status_update"
+
+    return response
+
+
+   
 
 
 @app.get("/complaints/{complaint_id}/updates")
@@ -453,7 +572,6 @@ def get_complaint_updates(
 # =========================================================
 # EVIDENCE
 # =========================================================
-
 @app.post("/evidence")
 def add_evidence(
     evidence: schemas.EvidenceCreate,
@@ -470,6 +588,19 @@ def add_evidence(
             detail="Complaint not found"
         )
 
+    # Check officer exists if officer ID is provided
+    if evidence.uploaded_by_officer is not None:
+
+        officer = db.query(models.Officer).filter(
+            models.Officer.officer_id == evidence.uploaded_by_officer
+        ).first()
+
+        if not officer:
+            raise HTTPException(
+                status_code=404,
+                detail="Officer not found"
+            )
+
     # Create evidence record
     new_evidence = models.Evidence(
         complaint_id=evidence.complaint_id,
@@ -484,43 +615,49 @@ def add_evidence(
     db.refresh(new_evidence)
 
     # ---------------------------------------------------------
-    # Record evidence submission on blockchain
+    # If evidence was submitted by an officer,
+    # record the resolution evidence event on CivicChain.
     # ---------------------------------------------------------
-    if evidence.uploaded_by_officer:
+    blockchain_result = None
 
-        event_data = {
-            "event": "resolution_evidence_submitted",
-            "complaint_id": evidence.complaint_id,
-            "evidence_hash": evidence.file_hash,
-            "description": evidence.description,
-            "actor": "Authority"
-        }
+    if evidence.uploaded_by_officer is not None:
 
-        block = blockchain.add_complaint(
+        blockchain_result = blockchain.add_complaint(
             evidence.complaint_id,
-            event_data
+            {
+                "event": "resolution_evidence_submitted",
+                "complaint_id": evidence.complaint_id,
+                "evidence_id": new_evidence.evidence_id,
+                "officer_id": evidence.uploaded_by_officer,
+                "file_hash": evidence.file_hash,
+                "description": evidence.description,
+                "actor": "Authority"
+            }
         )
 
-        return {
-            "evidence": new_evidence,
-            "blockchain_hash": block.hash,
-            "block_index": block.index,
-            "blockchain_event": "resolution_evidence_submitted"
-        }
+    response = {
+        "evidence_id": new_evidence.evidence_id,
+        "complaint_id": new_evidence.complaint_id,
+        "uploaded_by_officer": new_evidence.uploaded_by_officer,
+        "file_url": new_evidence.file_url,
+        "file_hash": new_evidence.file_hash,
+        "description": new_evidence.description,
+        "uploaded_at": new_evidence.uploaded_at
+    }
 
-    return new_evidence
+    if blockchain_result:
+        response["blockchain_hash"] = blockchain_result.hash
+        response["block_index"] = blockchain_result.index
+        response["blockchain_event"] = "resolution_evidence_submitted"
+
+    return response
 
 
-@app.get("/complaints/{complaint_id}/evidence")
-def get_evidence(
-    complaint_id: int,
-    db: Session = Depends(get_db)
-):
-    return db.query(
-        models.Evidence
-    ).filter(
-        models.Evidence.complaint_id == complaint_id
-    ).all()
+   
+
+    
+        
+    
 
 
 # =========================================================
