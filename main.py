@@ -812,9 +812,10 @@ if evidence.uploaded_by_officer is not None:
         response["block_index"] = blockchain_result.index
         response["blockchain_event"] = "resolution_evidence_submitted"
         if web3_result:
-    response["web3_transaction_hash"] = web3_result["transaction_hash"]
-    response["web3_block_number"] = web3_result["block_number"]
-    response["web3_evidence_hash"] = web3_result["evidence_hash"]
+            
+            response["web3_transaction_hash"] = web3_result["transaction_hash"]
+            response["web3_block_number"] = web3_result["block_number"]
+            response["web3_evidence_hash"] = web3_result["evidence_hash"]
 
     return response
 
