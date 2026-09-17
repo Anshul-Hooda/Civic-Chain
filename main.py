@@ -314,6 +314,25 @@ def update_complaint(
             detail="Complaint not found"
         )
 
+    old_status = complaint.status
+
+    # ---------------------------------------------------------
+    # R2: Do not allow RESOLVED without resolution evidence
+    # ---------------------------------------------------------
+    if data.status is not None and data.status.lower() == "resolved":
+
+        resolution_evidence = db.query(models.Evidence).filter(
+            models.Evidence.complaint_id == complaint_id,
+            models.Evidence.uploaded_by_officer == True
+        ).first()
+
+        if not resolution_evidence:
+            raise HTTPException(
+                status_code=400,
+                detail="Resolution evidence is required before marking the complaint as Resolved."
+            )
+
+    # Update complaint
     if data.status is not None:
         complaint.status = data.status
 
@@ -326,7 +345,34 @@ def update_complaint(
     db.commit()
     db.refresh(complaint)
 
+    # ---------------------------------------------------------
+    # Record authority action on blockchain
+    # ---------------------------------------------------------
+    if data.status is not None and old_status != data.status:
+
+        event_data = {
+            "event": "authority_status_update",
+            "complaint_id": complaint_id,
+            "old_status": old_status,
+            "new_status": data.status,
+            "actor": "Authority"
+        }
+
+        block = blockchain.add_complaint(
+            complaint_id,
+            event_data
+        )
+
+        return {
+            "complaint": complaint,
+            "blockchain_hash": block.hash,
+            "block_index": block.index,
+            "blockchain_event": "authority_status_update"
+        }
+
     return complaint
+
+    
 
 
 # =========================================================
