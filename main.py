@@ -599,14 +599,6 @@ def register_evidence_on_web3(
         "block_number": receipt.blockNumber,
         "evidence_hash": evidence_hash
     }
-
-
-
-    
-        
-    
-   
-   
 #evidence
 
 @app.post("/evidence")
@@ -699,7 +691,11 @@ def add_evidence(
         response["web3_transaction_hash"] = web3_result["transaction_hash"]
         response["web3_block_number"] = web3_result["block_number"]
         response["web3_evidence_hash"] = web3_result["evidence_hash"]
+
     return response
+   
+
+   
 # =========================================================
 # REVIEWS
 # =========================================================
