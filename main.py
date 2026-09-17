@@ -35,7 +35,6 @@ if RPC_URL and PRIVATE_KEY and CONTRACT_ADDRESS:
     )
 
    
-
 import models
 import schemas
 
