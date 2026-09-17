@@ -721,22 +721,55 @@ async function loadReferenceData() {
    LOAD DATA + HOME
    ============================================================ */
 
-async function loadComplaints({
-    silent = false
-} = {}) {
+async function loadComplaints({ silent = false } = {}) {
     try {
-        const complaints =
-            await fetchJSON(
-                "/complaints"
-            );
+        const [complaints, blockchain] = await Promise.all([
+            fetchJSON("/complaints"),
+            fetchJSON("/blockchain")
+        ]);
 
-        allComplaints =
-            Array.isArray(
-                complaints
-            )
-                ? complaints
-                : [];
+        const complaintList = Array.isArray(complaints)
+            ? complaints
+            : [];
 
+        const blocks = Array.isArray(blockchain)
+            ? blockchain
+            : [];
+
+        // Clear old blockchain hash data
+        blockchainHashesByComplaintId = new Map();
+
+        // Store blockchain hash against each complaint ID
+        blocks.forEach((block) => {
+            if (
+                block.complaint_id != null &&
+                block.hash
+            ) {
+                blockchainHashesByComplaintId.set(
+                    Number(block.complaint_id),
+                    block.hash
+                );
+            }
+        });
+
+        // Add blockchain hash to each complaint
+        allComplaints = complaintList.map((complaint) => {
+            const complaintId = Number(complaint.complaint_id);
+
+            const blockchainHash =
+                blockchainHashesByComplaintId.get(complaintId);
+
+            return {
+                ...complaint,
+                blockchain_tx_hash:
+                    blockchainHash ||
+                    complaint.blockchain_tx_hash ||
+                    complaint.blockchain_hash ||
+                    ""
+            };
+        });
+
+        // Refresh all frontend sections
         updateHomeMetrics();
         renderHomeProblemFiles();
         renderArchive();
@@ -745,12 +778,9 @@ async function loadComplaints({
         renderIntegrityEvents();
 
         return allComplaints;
-    }
-    catch (error) {
-        console.error(
-            "Complaint loading error:",
-            error
-        );
+
+    } catch (error) {
+        console.error("Complaint loading error:", error);
 
         if (!silent) {
             showToast(
@@ -761,6 +791,7 @@ async function loadComplaints({
         return [];
     }
 }
+   
 
 
 function startDataRefresh() {
