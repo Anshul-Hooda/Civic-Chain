@@ -698,25 +698,34 @@ def add_evidence(
     db.commit()
     db.refresh(new_evidence)
 
-    # ---------------------------------------------------------
-    # If evidence was submitted by an officer,
-    # record the resolution evidence event on CivicChain.
-    # ---------------------------------------------------------
-    blockchain_result = None
+#----------------------------------------------------------
+# Record officer resolution evidence on CivicChain
+# ---------------------------------------------------------
+blockchain_result = None
+web3_result = None
 
-    if evidence.uploaded_by_officer is not None:
+if evidence.uploaded_by_officer is not None:
 
-        blockchain_result = blockchain.add_complaint(
+    # Existing CivicChain record
+    blockchain_result = blockchain.add_complaint(
+        evidence.complaint_id,
+        {
+            "event": "resolution_evidence_submitted",
+            "complaint_id": evidence.complaint_id,
+            "evidence_id": new_evidence.evidence_id,
+            "officer_id": evidence.uploaded_by_officer,
+            "file_hash": evidence.file_hash,
+            "description": evidence.description,
+            "actor": "Authority"
+        }
+    )
+
+    # Web3 / Sepolia record
+    if evidence.file_hash:
+        web3_result = register_evidence_on_web3(
             evidence.complaint_id,
-            {
-                "event": "resolution_evidence_submitted",
-                "complaint_id": evidence.complaint_id,
-                "evidence_id": new_evidence.evidence_id,
-                "officer_id": evidence.uploaded_by_officer,
-                "file_hash": evidence.file_hash,
-                "description": evidence.description,
-                "actor": "Authority"
-            }
+            evidence.file_hash,
+            "resolution"
         )
 
     response = {
@@ -733,6 +742,10 @@ def add_evidence(
         response["blockchain_hash"] = blockchain_result.hash
         response["block_index"] = blockchain_result.index
         response["blockchain_event"] = "resolution_evidence_submitted"
+        if web3_result:
+    response["web3_transaction_hash"] = web3_result["transaction_hash"]
+    response["web3_block_number"] = web3_result["block_number"]
+    response["web3_evidence_hash"] = web3_result["evidence_hash"]
 
     return response
 
