@@ -102,35 +102,16 @@ app = FastAPI(
     description="Backend API for Civic Complaint Management System",
     version="1.0"
 )
-# =========================================================
-# WEB3 / SEPOLIA CONFIGURATION
-# =========================================================
 
-RPC_URL = os.getenv("RPC_URL")
-PRIVATE_KEY = os.getenv("PRIVATE_KEY")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
 
-web3 = None
-contract = None
-account = None
 
-if RPC_URL and PRIVATE_KEY and CONTRACT_ADDRESS:
 
-    web3 = Web3(Web3.HTTPProvider(RPC_URL))
 
-    account = web3.eth.account.from_key(PRIVATE_KEY)
 
-    CONTRACT_ADDRESS = Web3.to_checksum_address(
-        CONTRACT_ADDRESS
-    )
 
-    with open("CivicProof_abi.json", "r") as f:
-        CONTRACT_ABI = json.load(f)
 
-    contract = web3.eth.contract(
-        address=CONTRACT_ADDRESS,
-        abi=CONTRACT_ABI
-    )
+   
+
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
 app.add_middleware(
@@ -435,61 +416,13 @@ def update_complaint(
         response["blockchain_event"] = "authority_status_update"
 
     return response
-    # ---------------------------------------------------------
-    # R2: Do not allow RESOLVED without resolution evidence
-    # ---------------------------------------------------------
-    if data.status is not None and data.status.lower() == "resolved":
+    
+        
 
-        resolution_evidence = db.query(models.Evidence).filter(
-            models.Evidence.complaint_id == complaint_id,
-            models.Evidence.uploaded_by_officer == True
-        ).first()
+        
 
-        if not resolution_evidence:
-            raise HTTPException(
-                status_code=400,
-                detail="Resolution evidence is required before marking the complaint as Resolved."
-            )
-
-    # Update complaint
-    if data.status is not None:
-        complaint.status = data.status
-
-    if data.priority is not None:
-        complaint.priority = data.priority
-
-    if data.deadline is not None:
-        complaint.deadline = data.deadline
-
-    db.commit()
-    db.refresh(complaint)
-
-    # ---------------------------------------------------------
-    # Record authority action on blockchain
-    # ---------------------------------------------------------
-    if data.status is not None and old_status != data.status:
-
-        event_data = {
-            "event": "authority_status_update",
-            "complaint_id": complaint_id,
-            "old_status": old_status,
-            "new_status": data.status,
-            "actor": "Authority"
-        }
-
-        block = blockchain.add_complaint(
-            complaint_id,
-            event_data
-        )
-
-        return {
-            "complaint": complaint,
-            "blockchain_hash": block.hash,
-            "block_index": block.index,
-            "blockchain_event": "authority_status_update"
-        }
-
-    return complaint
+       
+            
 
     
 
