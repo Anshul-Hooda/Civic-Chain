@@ -249,7 +249,7 @@ def create_complaint(
     db.commit()
     db.refresh(new_complaint)
 
-    # Add complaint to CivicChain blockchain
+    # Add complaint to Cityfile blockchain
     block = blockchain.add_complaint(
         new_complaint.complaint_id,
         {
