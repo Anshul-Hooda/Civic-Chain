@@ -417,17 +417,6 @@ def update_complaint(
         response["blockchain_event"] = "authority_status_update"
 
     return response
-    
-        
-
-        
-
-       
-            
-
-    
-
-
 # =========================================================
 # COMPLAINT ASSIGNMENTS
 # =========================================================
