@@ -676,9 +676,7 @@ def register_evidence_on_web3(
         "block_number": receipt.blockNumber,
         "evidence_hash": evidence_hash
     }
-# =========================================================
-# EVIDENCE
-# =========================================================
+
 def register_evidence_on_web3(
     complaint_id: int,
     evidence_hash: str,
@@ -724,7 +722,8 @@ def register_evidence_on_web3(
         "block_number": receipt.blockNumber,
         "evidence_hash": evidence_hash
     }
-    
+#evidence
+
 @app.post("/evidence")
 def add_evidence(
     evidence: schemas.EvidenceCreate,
@@ -818,6 +817,8 @@ def add_evidence(
         response["web3_evidence_hash"] = web3_result["evidence_hash"]
 
     return response
+
+    
 
     
     
