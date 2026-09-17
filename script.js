@@ -230,10 +230,14 @@ function getDepartmentName(complaint) {
 
 
 function getBlockchainHash(complaint) {
+    const complaintId = Number(complaint?.complaint_id);
+
     return (
         complaint?.blockchain_tx_hash ||
+        complaint?.blockchain_hash ||
         complaint?.tx_hash ||
         complaint?.transaction_hash ||
+        blockchainHashesByComplaintId.get(complaintId) ||
         ""
     );
 }
