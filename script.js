@@ -32,6 +32,7 @@ const CITY_CENTERS = {
 };
 
 let allComplaints = [];
+let blockchainHashesByComplaintId = new Map();
 let activeArchiveFilter = "all";
 let activeArchiveBookIndex = 0;
 let activeMapFilter = "all";
