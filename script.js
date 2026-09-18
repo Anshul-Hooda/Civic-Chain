@@ -1045,7 +1045,7 @@ function initializeNavigation() {
                 );
 
             if (marker) {
-                openMapFor(
+                openHomeCategoryRecords(
                     marker.dataset.mapFilter ||
                     "all"
                 );
@@ -6124,6 +6124,7 @@ async function loadComplaints({
         ]);
 
         updateHomeMetrics();
+        updateHomeProblemStatuses();
         renderHomeProblemFiles();
         renderArchive();
         renderMapMarkers();
@@ -11455,7 +11456,7 @@ function initializeHomeMarkers() {
 
                         event.preventDefault();
 
-                        openMapFor(
+                        openHomeCategoryRecords(
                             marker.dataset
                                 .mapFilter ||
                             "all"
@@ -12447,7 +12448,271 @@ function enableMobileContinuousPage() {
     });
 
 }
+/* =====================================================
+   HOME PAGE PROBLEM CATEGORY STATUS
+   ===================================================== */
 
+function getHomeCategoryStatus(group) {
+
+    const records = allComplaints.filter(
+        complaint => issueGroup(complaint) === group
+    );
+
+    // No complaint has been reported
+    if (records.length === 0) {
+        return "NO REPORTS";
+    }
+
+    // All complaints are completely verified
+    if (records.every(complaint => isVerified(complaint))) {
+        return "RESOLVED";
+    }
+
+    // Authority has marked at least one complaint as fixed
+    if (
+        records.some(
+            complaint => isAuthorityResolved(complaint)
+        )
+    ) {
+        return "VERIFY FIX";
+    }
+
+    // Authority is working on at least one complaint
+    if (
+        records.some(
+            complaint => isInProgress(complaint)
+        )
+    ) {
+        return "IN PROGRESS";
+    }
+
+    // Complaint exists but work has not started
+    return "REPORTED";
+}
+
+
+/* =====================================================
+   UPDATE THE 4 HOME PAGE PROBLEM CARDS
+   ===================================================== */
+
+function updateHomeProblemStatuses() {
+
+    const statusElements = {
+        road: document.getElementById("homeRoadStatus"),
+        streetlight: document.getElementById("homeStreetlightStatus"),
+        water: document.getElementById("homeWaterStatus"),
+        sanitation: document.getElementById("homeSanitationStatus")
+    };
+
+    Object.entries(statusElements).forEach(
+        ([group, element]) => {
+
+            if (!element) return;
+
+            element.textContent =
+                getHomeCategoryStatus(group);
+        }
+    );
+}
+
+
+/* =====================================================
+   OPEN POPUP FOR A PROBLEM CATEGORY
+   ===================================================== */
+
+function openHomeCategoryRecords(group) {
+
+    const overlay =
+        document.getElementById("caseOverlay");
+
+    const body =
+        document.getElementById("caseContent");
+
+    if (!overlay || !body) return;
+
+
+    const records =
+        allComplaints
+            .filter(
+                complaint =>
+                    issueGroup(complaint) === group
+            )
+            .sort(
+                (a, b) =>
+                    (Date.parse(b.created_at || "") || 0) -
+                    (Date.parse(a.created_at || "") || 0)
+            );
+
+
+    const categoryNames = {
+        road: "POTHOLE",
+        streetlight: "STREETLIGHT",
+        water: "PIPE LEAK",
+        sanitation: "WASTE"
+    };
+
+
+    const categoryName =
+        categoryNames[group] || "PROBLEM";
+
+
+    /* ---------------------------------------------
+       NO RECORDS
+       --------------------------------------------- */
+
+    if (records.length === 0) {
+
+        body.innerHTML = `
+
+            <div class="case-record">
+
+                <div class="case-record-intro">
+
+                    <small>
+                        CITYFILE / PUBLIC RECORDS
+                    </small>
+
+                    <h2>
+                        ${categoryName}
+                    </h2>
+
+                    <p>
+                        No complaints have been reported
+                        for this problem yet.
+                    </p>
+
+                </div>
+
+            </div>
+
+        `;
+
+    }
+
+    /* ---------------------------------------------
+       RECORDS EXIST
+       --------------------------------------------- */
+
+    else {
+
+        body.innerHTML = `
+
+            <div class="case-record">
+
+                <section class="case-record-intro">
+
+                    <small>
+                        CITYFILE / PUBLIC RECORDS
+                    </small>
+
+                    <h2>
+                        ${categoryName}
+                    </h2>
+
+                    <p>
+                        ${records.length}
+                        public record${records.length === 1 ? "" : "s"}
+                        found.
+                    </p>
+
+                </section>
+
+
+                <section class="case-record-section">
+
+                    <div class="case-section-heading">
+
+                        <small>
+                            REPORTED PROBLEMS
+                        </small>
+
+                        <h3>
+                            ${categoryName} records
+                        </h3>
+
+                    </div>
+
+
+                    <div class="home-category-record-list">
+
+                        ${records.map(complaint => `
+
+                            <article
+                                class="home-category-record"
+                            >
+
+                                <div>
+
+                                    <small>
+                                        ${escapeHTML(
+                                            formatComplaintId(
+                                                complaint.complaint_id
+                                            )
+                                        )}
+                                    </small>
+
+                                    <h4>
+                                        ${escapeHTML(
+                                            publicLocation(
+                                                complaint
+                                            )
+                                        )}
+                                    </h4>
+
+                                    <p>
+                                        ${escapeHTML(
+                                            complaint.description ||
+                                            "No description recorded."
+                                        )}
+                                    </p>
+
+                                </div>
+
+
+                                <div>
+
+                                    <strong>
+                                        ${escapeHTML(
+                                            homeStatusLabel(
+                                                complaint
+                                            )
+                                        )}
+                                    </strong>
+
+
+                                    <button
+                                        type="button"
+                                        onclick="openCase(${Number(
+                                            complaint.complaint_id
+                                        )})"
+                                    >
+                                        OPEN FILE →
+                                    </button>
+
+                                </div>
+
+                            </article>
+
+                        `).join("")}
+
+                    </div>
+
+                </section>
+
+            </div>
+
+        `;
+    }
+
+
+    /* ---------------------------------------------
+       SHOW EXISTING CASE POPUP
+       --------------------------------------------- */
+
+    overlay.hidden = false;
+
+    document.body.classList.add("case-open");
+}
 
 /*
    Run AFTER CITYFILE's normal initialization.
@@ -12468,4 +12733,3 @@ window.addEventListener(
 
     }
 );
-
