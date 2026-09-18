@@ -1020,7 +1020,192 @@ function openMapFor(filter = "all") {
         renderMapMarkers();
     }, 100);
 }
+function openHomeCategoryRecords(group) {
 
+    const overlay =
+        document.getElementById("caseOverlay");
+
+    const body =
+        document.getElementById("caseContent");
+
+    if (!overlay || !body) {
+        return;
+    }
+
+    const records =
+        allComplaints.filter(
+            complaint =>
+                issueGroup(complaint) === group
+        );
+
+    const categoryNames = {
+        road: "POTHOLE",
+        water: "PIPE LEAK",
+        sanitation: "WASTE",
+        streetlight: "STREETLIGHT"
+    };
+
+    const categoryName =
+        categoryNames[group] || "PROBLEMS";
+
+
+    /* -----------------------------------------
+       NO RECORDS
+       ----------------------------------------- */
+
+    if (records.length === 0) {
+
+        body.innerHTML = `
+
+            <div class="case-record">
+
+                <section class="case-record-intro">
+
+                    <small>
+                        CITYFILE / PUBLIC RECORDS
+                    </small>
+
+                    <h2>
+                        ${categoryName}
+                    </h2>
+
+                    <p>
+                        No ${categoryName.toLowerCase()}
+                        problems have been reported yet.
+                    </p>
+
+                </section>
+
+            </div>
+
+        `;
+
+    }
+
+
+    /* -----------------------------------------
+       RECORDS EXIST
+       ----------------------------------------- */
+
+    else {
+
+        body.innerHTML = `
+
+            <div class="case-record">
+
+                <section class="case-record-intro">
+
+                    <small>
+                        CITYFILE / PUBLIC RECORDS
+                    </small>
+
+                    <h2>
+                        ${categoryName}
+                    </h2>
+
+                    <p>
+                        ${records.length}
+                        reported problem${records.length === 1 ? "" : "s"}
+                    </p>
+
+                </section>
+
+
+                <section class="case-record-section">
+
+                    <div class="case-section-heading">
+
+                        <small>
+                            REPORTED PROBLEMS
+                        </small>
+
+                        <h3>
+                            ${categoryName} RECORDS
+                        </h3>
+
+                    </div>
+
+
+                    <div class="home-category-record-list">
+
+                        ${records.map(complaint => `
+
+                            <article
+                                class="home-category-record"
+                            >
+
+                                <div>
+
+                                    <small>
+                                        ${escapeHTML(
+                                            formatComplaintId(
+                                                complaint.complaint_id
+                                            )
+                                        )}
+                                    </small>
+
+                                    <h4>
+                                        ${escapeHTML(
+                                            publicLocation(
+                                                complaint
+                                            )
+                                        )}
+                                    </h4>
+
+                                    <p>
+                                        ${escapeHTML(
+                                            complaint.description ||
+                                            "No description recorded."
+                                        )}
+                                    </p>
+
+                                </div>
+
+
+                                <div>
+
+                                    <strong>
+                                        ${escapeHTML(
+                                            homeStatusLabel(
+                                                complaint
+                                            )
+                                        )}
+                                    </strong>
+
+
+                                    <button
+                                        type="button"
+                                        onclick="openCase(${Number(
+                                            complaint.complaint_id
+                                        )})"
+                                    >
+                                        OPEN FILE →
+                                    </button>
+
+                                </div>
+
+                            </article>
+
+                        `).join("")}
+
+                    </div>
+
+                </section>
+
+            </div>
+
+        `;
+    }
+
+
+    /* -----------------------------------------
+       OPEN EXISTING POPUP
+       ----------------------------------------- */
+
+    overlay.hidden = false;
+
+    document.body.classList.add("case-open");
+}
 
 function initializeNavigation() {
     document.addEventListener(
