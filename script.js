@@ -12765,3 +12765,12 @@ window.addEventListener(
 
     }
 );
+// Remove the "Inspect Complete Record" button from the interface
+document.querySelectorAll("button,a").forEach(element => {
+    const text=element.textContent.trim().toLowerCase();
+if (text.includes("inspect complete record")) {
+        element.style.display = "none";
+}
+//Remove "Refresh" button/link
+if (text.includes("refresh")){element.style.display = "none";}
+});
