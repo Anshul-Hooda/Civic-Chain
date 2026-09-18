@@ -1137,7 +1137,36 @@ function filterDepartmentsForSelectedCity() {
         departments.length === 0;
 }
 
+function initializeAreaSelect() {
+    const citySelect = document.getElementById("city");
+    const areaSelect = document.getElementById("area");
 
+    if (!citySelect || !areaSelect) return;
+
+    function updateAreas() {
+        const cityName =
+            citySelect.options[citySelect.selectedIndex]?.text
+                ?.trim()
+                .toLowerCase() || "";
+
+        areaSelect.innerHTML =
+            '<option value="">Select area</option>';
+
+        const areas = CITY_AREAS[cityName] || [];
+
+        areas.forEach((area) => {
+            const option = document.createElement("option");
+            option.value = area;
+            option.textContent = area;
+            areaSelect.appendChild(option);
+        });
+
+        areaSelect.disabled = areas.length === 0;
+    }
+
+    citySelect.addEventListener("change", updateAreas);
+    updateAreas();
+}
 function initializeCityDepartmentLink() {
     const citySelect = document.getElementById("city");
 
