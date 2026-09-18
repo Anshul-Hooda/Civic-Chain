@@ -1,16 +1,33 @@
-from fastapi import FastAPI
+import os
+import hashlib
+import uuid
+import re
+from pathlib import Path
+from datetime import datetime, timezone
+
+from dotenv import load_dotenv
+
+# Load .env before importing database/blockchain/models because those modules
+# read storage configuration during import.
+load_dotenv()
 
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from blockchain import blockchain
+from sqlalchemy import inspect, text
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from web3 import Web3
-import hashlib
 import json
-import os
+
+# Optional Web3/Sepolia anchoring added on the remote branch.
+# CITYFILE still boots when Web3 is not installed/configured; local integrity
+# records continue to work through blockchain.py.
+try:
+    from web3 import Web3
+except ImportError:
+    Web3 = None
+
 RPC_URL = os.getenv("RPC_URL")
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
@@ -19,82 +36,204 @@ web3 = None
 contract = None
 account = None
 
-if RPC_URL and PRIVATE_KEY and CONTRACT_ADDRESS:
-    web3 = Web3(Web3.HTTPProvider(RPC_URL))
+if Web3 is not None and RPC_URL and PRIVATE_KEY and CONTRACT_ADDRESS:
+    try:
+        web3 = Web3(Web3.HTTPProvider(RPC_URL))
+        account = web3.eth.account.from_key(PRIVATE_KEY)
+        checksum_address = Web3.to_checksum_address(CONTRACT_ADDRESS)
 
-    account = web3.eth.account.from_key(PRIVATE_KEY)
+        abi_path = Path(__file__).resolve().parent / "cityproofs_abi.json"
+        with abi_path.open("r", encoding="utf-8") as abi_file:
+            contract_abi = json.load(abi_file)
 
-    CONTRACT_ADDRESS = Web3.to_checksum_address(CONTRACT_ADDRESS)
+        contract = web3.eth.contract(
+            address=checksum_address,
+            abi=contract_abi
+        )
+    except Exception as error:
+        print(f"Web3 anchoring could not be initialized: {error}")
+        web3 = None
+        contract = None
+        account = None
 
-    with open("cityproofs_abi.json", "r") as f:
-        CONTRACT_ABI = json.load(f)
-
-    contract = web3.eth.contract(
-        address=CONTRACT_ADDRESS,
-        abi=CONTRACT_ABI
-    )
-
-   
+from blockchain import blockchain
 import models
 import schemas
+
+from fastapi import UploadFile, File, Form
+
+# Clerk is optional at import time so the rest of CITYFILE can still boot
+# before the dependency/keys are configured. Protected CITYKEEPERS routes
+# fail closed until Clerk is available.
+try:
+    from clerk_backend_api import Clerk
+    from clerk_backend_api.security.types import AuthenticateRequestOptions
+except ImportError:
+    Clerk = None
+    AuthenticateRequestOptions = None
+
 
 from database import get_db, engine
 
 models.Base.metadata.create_all(bind=engine)
+
+# =========================================================
+# LIGHTWEIGHT COMPATIBILITY MIGRATION
+# =========================================================
+# create_all() does not add new columns to an existing SQLite table.
+# This keeps old local databases working after Clerk identity is added.
+def ensure_citykeeper_auth_schema():
+    inspector = inspect(engine)
+
+    if "users" not in inspector.get_table_names():
+        return
+
+    user_columns = {
+        column["name"]
+        for column in inspector.get_columns("users")
+    }
+
+    with engine.begin() as connection:
+        if "clerk_user_id" not in user_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE users "
+                    "ADD COLUMN clerk_user_id VARCHAR(255)"
+                )
+            )
+
+        # Supported by SQLite and PostgreSQL. The index is intentionally
+        # separate so existing databases do not need a destructive migration.
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "ix_users_clerk_user_id "
+                "ON users (clerk_user_id)"
+            )
+        )
+
+
+ensure_citykeeper_auth_schema()
+
 from database import SessionLocal
 
-db = SessionLocal()
 
-if db.query(models.City).count() == 0:
-    db.add_all([
-        models.City(city_name="Delhi"),
-        models.City(city_name="Sonipat"),
-        models.City(city_name="Gurugram")
-    ])
+# =========================================================
+# CLERK CONFIGURATION
+# =========================================================
 
-if db.query(models.Category).count() == 0:
-    db.add_all([
-        models.Category(category_name="Pothole"),
-        models.Category(category_name="Broken Streetlight"),
-        models.Category(category_name="Water Leakage"),
-        models.Category(category_name="Overflowing Garbage"),
-        models.Category(category_name="Unsafe Road"),
-        models.Category(category_name="Drainage Problem")
-    ])
+CLERK_PUBLISHABLE_KEY = os.getenv(
+    "CLERK_PUBLISHABLE_KEY",
+    ""
+).strip()
 
-db.commit()
+CLERK_SECRET_KEY = os.getenv(
+    "CLERK_SECRET_KEY",
+    ""
+).strip()
 
-if db.query(models.Department).count() == 0:
-    delhi = db.query(models.City).filter(
-        models.City.city_name == "Delhi"
-    ).first()
+CLERK_JWT_KEY = os.getenv(
+    "CLERK_JWT_KEY",
+    ""
+).strip()
 
-    db.add_all([
-        models.Department(
-            department_name="Roads",
-            city_id=delhi.city_id
-        ),
-        models.Department(
-            department_name="Sanitation",
-            city_id=delhi.city_id
-        ),
-        models.Department(
-            department_name="Water Supply",
-            city_id=delhi.city_id
-        ),
-        models.Department(
-            department_name="Electricity",
-            city_id=delhi.city_id
-        ),
-        models.Department(
-            department_name="Police",
-            city_id=delhi.city_id
-        )
-    ])
+CLERK_AUTHORIZED_PARTIES = [
+    value.strip()
+    for value in os.getenv(
+        "CLERK_AUTHORIZED_PARTIES",
+        ""
+    ).split(",")
+    if value.strip()
+]
 
-    db.commit()
-    
-db.close()
+CLERK_AUTHORITY_USER_IDS = {
+    value.strip()
+    for value in os.getenv(
+        "CLERK_AUTHORITY_USER_IDS",
+        ""
+    ).split(",")
+    if value.strip()
+}
+
+clerk_client = (
+    Clerk(bearer_auth=CLERK_SECRET_KEY)
+    if Clerk is not None and CLERK_SECRET_KEY
+    else None
+)
+
+def ensure_reference_data():
+    """Idempotently ensure every supported city has usable reference data."""
+    db = SessionLocal()
+
+    try:
+        supported_cities = [
+            "Delhi",
+            "Sonipat",
+            "Gurugram"
+        ]
+
+        categories = [
+            "Pothole",
+            "Broken Streetlight",
+            "Water Leakage",
+            "Overflowing Garbage",
+            "Unsafe Road",
+            "Drainage Problem"
+        ]
+
+        department_names = [
+            "Roads",
+            "Sanitation",
+            "Water Supply",
+            "Electricity",
+            "Police"
+        ]
+
+        for city_name in supported_cities:
+            city = db.query(models.City).filter(
+                models.City.city_name == city_name
+            ).first()
+
+            if not city:
+                city = models.City(city_name=city_name)
+                db.add(city)
+                db.flush()
+
+            existing_departments = {
+                department.department_name
+                for department in db.query(models.Department).filter(
+                    models.Department.city_id == city.city_id
+                ).all()
+            }
+
+            for department_name in department_names:
+                if department_name not in existing_departments:
+                    db.add(
+                        models.Department(
+                            department_name=department_name,
+                            city_id=city.city_id
+                        )
+                    )
+
+        existing_categories = {
+            category.category_name
+            for category in db.query(models.Category).all()
+        }
+
+        for category_name in categories:
+            if category_name not in existing_categories:
+                db.add(
+                    models.Category(
+                        category_name=category_name
+                    )
+                )
+
+        db.commit()
+    finally:
+        db.close()
+
+
+ensure_reference_data()
 
 
 app = FastAPI(
@@ -103,27 +242,578 @@ app = FastAPI(
     version="1.0"
 )
 
+BASE_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = BASE_DIR / "assets"
 
+if not ASSETS_DIR.is_dir():
+    raise RuntimeError(
+        f"Required assets directory was not found: {ASSETS_DIR}"
+    )
 
+app.mount(
+    "/assets",
+    StaticFiles(directory=str(ASSETS_DIR)),
+    name="assets"
+)
 
+uploads_setting = os.getenv(
+    "UPLOADS_PATH",
+    "uploads"
+).strip() or "uploads"
 
+UPLOADS_DIR = Path(uploads_setting)
+if not UPLOADS_DIR.is_absolute():
+    UPLOADS_DIR = BASE_DIR / UPLOADS_DIR
 
+UPLOADS_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
+app.mount(
+    "/uploads",
+    StaticFiles(directory=str(UPLOADS_DIR)),
+    name="uploads"
+)
 
-   
-
-app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+cors_origins = [
+    value.strip()
+    for value in os.getenv("CORS_ORIGINS", "*").split(",")
+    if value.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins or ["*"],
+    # CITYFILE uses bearer tokens, not cross-origin auth cookies. Keeping
+    # credentials disabled makes a wildcard development origin valid.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
 
+# =========================================================
+# PUBLIC FRONTEND CONFIG + AUTH HELPERS
+# =========================================================
+
+@app.get("/config")
+def get_public_config():
+    return {
+        "clerk_enabled": bool(
+            CLERK_PUBLISHABLE_KEY and
+            CLERK_SECRET_KEY and
+            clerk_client is not None
+        ),
+        "clerk_publishable_key": CLERK_PUBLISHABLE_KEY,
+        "authority_access_configured": bool(CLERK_AUTHORITY_USER_IDS)
+    }
+
+
+def require_cityfile_user(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Verify the Clerk session token sent by the browser and map the
+    Clerk subject to a stable CITYFILE user row.
+    """
+
+    if (
+        clerk_client is None or
+        AuthenticateRequestOptions is None or
+        not CLERK_SECRET_KEY
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Clerk authentication is not configured on the backend."
+            )
+        )
+
+    options_kwargs = {}
+
+    if CLERK_AUTHORIZED_PARTIES:
+        options_kwargs["authorized_parties"] = (
+            CLERK_AUTHORIZED_PARTIES
+        )
+
+    if CLERK_JWT_KEY:
+        options_kwargs["jwt_key"] = CLERK_JWT_KEY
+
+    try:
+        request_state = clerk_client.authenticate_request(
+            request,
+            AuthenticateRequestOptions(
+                **options_kwargs
+            )
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=401,
+            detail="Could not verify Clerk session."
+        ) from error
+
+    is_authenticated = bool(
+        getattr(
+            request_state,
+            "is_authenticated",
+            False
+        ) or
+        getattr(
+            request_state,
+            "is_signed_in",
+            False
+        )
+    )
+
+    payload = (
+        getattr(
+            request_state,
+            "payload",
+            None
+        ) or {}
+    )
+
+    clerk_user_id = payload.get("sub")
+
+    if (
+        not is_authenticated or
+        not clerk_user_id
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Sign in is required."
+        )
+
+    user = db.query(
+        models.User
+    ).filter(
+        models.User.clerk_user_id ==
+        clerk_user_id
+    ).first()
+
+    if user:
+        if not user.public_user_id:
+            user.public_user_id = (
+                f"CK-{user.user_id:06d}"
+            )
+            db.commit()
+            db.refresh(user)
+
+        return user
+
+    # CITYKEEPERS only needs a private auth mapping plus a public CK id.
+    # We intentionally do not invent or expose a person's real name.
+    user = models.User(
+        name=None,
+        email=None,
+        phone=None,
+        public_user_id=None,
+        clerk_user_id=clerk_user_id
+    )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    user.public_user_id = (
+        f"CK-{user.user_id:06d}"
+    )
+
+    db.commit()
+    db.refresh(user)
+
+    return user
+
+
+@app.get("/auth/me")
+def get_authenticated_user(
+    current_user: models.User = Depends(require_cityfile_user)
+):
+    return {
+        "user_id": current_user.user_id,
+        "public_user_id": current_user.public_user_id,
+        "is_authority": is_authority_user(current_user)
+    }
+
+
+def is_authority_user(user):
+    return bool(
+        user and
+        user.clerk_user_id and
+        user.clerk_user_id in CLERK_AUTHORITY_USER_IDS
+    )
+
+
+def require_authority_user(
+    current_user: models.User = Depends(require_cityfile_user)
+):
+    if not is_authority_user(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="This action requires an authorized CITYFILE authority account."
+        )
+    return current_user
+
+
+def optional_cityfile_user(request: Request, db: Session):
+    authorization = str(request.headers.get("authorization") or "").strip()
+
+    if not authorization:
+        return None
+
+    # If a browser sends a token, do not silently downgrade an invalid token
+    # to anonymous ownership.
+    return require_cityfile_user(request, db)
+
+
+def parse_report_coordinates(location):
+    match = re.search(
+        r"Latitude:\s*(-?\d+(?:\.\d+)?)\s*,\s*Longitude:\s*(-?\d+(?:\.\d+)?)",
+        str(location or ""),
+        flags=re.IGNORECASE
+    )
+
+    if not match:
+        return None, None
+
+    try:
+        return float(match.group(1)), float(match.group(2))
+    except (TypeError, ValueError):
+        return None, None
+
+
+def serialize_evidence(record):
+    return {
+        "evidence_id": record.evidence_id,
+        "complaint_id": record.complaint_id,
+        "uploaded_by_officer": record.uploaded_by_officer,
+        "uploaded_by_user": record.uploaded_by_user,
+        "evidence_type": record.evidence_type,
+        "file_url": record.file_url,
+        "file_hash": record.file_hash,
+        "description": record.description,
+        "uploaded_at": record.uploaded_at
+    }
+
+
+def serialize_update(record):
+    return {
+        "update_id": record.update_id,
+        "complaint_id": record.complaint_id,
+        "officer_id": record.officer_id,
+        "status": record.status,
+        "comment": record.comment,
+        "updated_at": record.updated_at
+    }
+
+
+def serialize_resolution_review(review):
+    if not review:
+        return None
+
+    return {
+        "resolution_review_id": review.resolution_review_id,
+        "complaint_id": review.complaint_id,
+        "attempt_id": review.attempt_id,
+        "verified_by_user": review.verified_by_user,
+        "action": review.decision,
+        "decision": review.decision,
+        "reason": review.reason,
+        "timestamp": review.created_at,
+        "created_at": review.created_at
+    }
+
+
+def resolution_review_for_attempt(db: Session, attempt_id: int):
+    return db.query(models.CitizenResolutionReview).filter(
+        models.CitizenResolutionReview.attempt_id == attempt_id
+    ).first()
+
+
+def authority_attempts_for_complaint(db: Session, complaint_id: int):
+    return db.query(models.AuthorityResolutionAttempt).filter(
+        models.AuthorityResolutionAttempt.complaint_id == complaint_id
+    ).order_by(
+        models.AuthorityResolutionAttempt.created_at.asc(),
+        models.AuthorityResolutionAttempt.attempt_id.asc()
+    ).all()
+
+
+def serialize_authority_attempt(db: Session, attempt, ordinal: int):
+    review = resolution_review_for_attempt(db, attempt.attempt_id)
+    proof = {
+        "authority": attempt.authority_label,
+        "note": attempt.note,
+        "image": attempt.file_url,
+        "file_url": attempt.file_url,
+        "file_hash": attempt.file_hash,
+        "latitude": attempt.latitude,
+        "longitude": attempt.longitude,
+        "accuracy": attempt.accuracy_m,
+        "accuracy_m": attempt.accuracy_m,
+        "capturedAt": attempt.captured_at or attempt.created_at,
+        "locationCapturedAt": attempt.captured_at or attempt.created_at,
+        "created_at": attempt.created_at,
+        "attemptNumber": ordinal
+    }
+
+    return {
+        "attempt": ordinal,
+        "attempt_id": attempt.attempt_id,
+        "complaint_id": attempt.complaint_id,
+        "submitted_by_user_id": attempt.submitted_by_user_id,
+        "proof": proof,
+        "review": serialize_resolution_review(review)
+    }
+
+
+def append_integrity_event(complaint_id: int, data: dict):
+    try:
+        return blockchain.add_event(complaint_id, data)
+    except Exception as error:
+        # Database state remains authoritative if the local hash-chain file is
+        # unavailable. The public integrity UI will show the missing anchor
+        # rather than inventing one.
+        print(f"Integrity event could not be appended for complaint {complaint_id}: {error}")
+        return None
+
+
+def serialize_complaint(db: Session, complaint):
+    attempts = authority_attempts_for_complaint(db, complaint.complaint_id)
+    serialized_attempts = [
+        serialize_authority_attempt(db, attempt, index + 1)
+        for index, attempt in enumerate(attempts)
+    ]
+
+    updates = db.query(models.ComplaintUpdate).filter(
+        models.ComplaintUpdate.complaint_id == complaint.complaint_id
+    ).order_by(
+        models.ComplaintUpdate.updated_at.asc(),
+        models.ComplaintUpdate.update_id.asc()
+    ).all()
+
+    evidence = db.query(models.Evidence).filter(
+        models.Evidence.complaint_id == complaint.complaint_id
+    ).order_by(
+        models.Evidence.uploaded_at.asc(),
+        models.Evidence.evidence_id.asc()
+    ).all()
+
+    anchor = blockchain.complaint_anchor(complaint.complaint_id)
+    chain_events = blockchain.complaint_blocks(complaint.complaint_id)
+    latitude, longitude = parse_report_coordinates(complaint.location)
+
+    return {
+        "complaint_id": complaint.complaint_id,
+        "user_id": complaint.user_id,
+        "city_id": complaint.city_id,
+        "category_id": complaint.category_id,
+        "department_id": complaint.department_id,
+        "city_name": complaint.city.city_name if complaint.city else None,
+        "category_name": complaint.category.category_name if complaint.category else None,
+        "department_name": complaint.department.department_name if complaint.department else None,
+        "description": complaint.description,
+        "location": complaint.location,
+        "latitude": latitude,
+        "longitude": longitude,
+        "priority": complaint.priority,
+        "status": complaint.status,
+        "created_at": complaint.created_at,
+        "deadline": complaint.deadline,
+        "blockchain_hash": anchor.hash if anchor else None,
+        "block_index": anchor.index if anchor else None,
+        "integrity_type": "local_sha256_hash_chain",
+        "integrity_verified": bool(blockchain.verify_chain()),
+        "integrity_error": blockchain.integrity_error,
+        "citykeeper_eligible": citykeeper_community_eligible(complaint),
+        "integrity_events": [
+            {
+                "index": block.index,
+                "timestamp": block.timestamp,
+                "previous_hash": block.previous_hash,
+                "hash": block.hash,
+                "data": block.data
+            }
+            for block in chain_events
+        ],
+        "updates": [serialize_update(update) for update in updates],
+        "evidence": [serialize_evidence(item) for item in evidence],
+        "resolution_attempts": serialized_attempts,
+        "latest_authority_resolution": (
+            serialized_attempts[-1] if serialized_attempts else None
+        )
+    }
+
+
+def latest_authority_attempt(db: Session, complaint_id: int):
+    return db.query(models.AuthorityResolutionAttempt).filter(
+        models.AuthorityResolutionAttempt.complaint_id == complaint_id
+    ).order_by(
+        models.AuthorityResolutionAttempt.created_at.desc(),
+        models.AuthorityResolutionAttempt.attempt_id.desc()
+    ).first()
+
+
+def parse_client_datetime(value):
+    if not value:
+        return None
+
+    raw = str(value).strip()
+
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid captured_at timestamp."
+        ) from error
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return parsed
+
+
+def citykeeper_community_eligible(
+    complaint
+):
+    """
+    Backend mirror of the frontend safety boundary:
+    only community-safe cleanup/public-space care is eligible.
+    """
+
+    if complaint is None:
+        return False
+
+    status = str(
+        complaint.status or ""
+    ).strip().lower()
+
+    if status in {
+        "resolved",
+        "verified",
+        "closed"
+    }:
+        return False
+
+    category_name = ""
+
+    try:
+        if complaint.category:
+            category_name = str(
+                complaint.category.category_name or ""
+            )
+    except Exception:
+        category_name = ""
+
+    text_value = " ".join([
+        category_name,
+        str(complaint.description or ""),
+        str(complaint.location or "")
+    ]).lower()
+
+    # Keep infrastructure and safety work with trained authorities.
+    blocked_patterns = [
+        r"\bpothole\b",
+        r"\broad repair\b",
+        r"\bstreetlight\b",
+        r"\bstreet light\b",
+        r"\belectric",
+        r"\bwater leak",
+        r"\bpipeline\b",
+        r"\bdrain",
+        r"\bsewage\b",
+        r"\bsewer\b",
+        r"\bunsafe road\b",
+        r"\bpolice\b",
+        r"\bcrime\b"
+    ]
+
+    if any(
+        re.search(
+            pattern,
+            text_value
+        )
+        for pattern in blocked_patterns
+    ):
+        return False
+
+    if (
+        "garbage" in category_name.lower() or
+        "sanitation" in category_name.lower()
+    ):
+        return True
+
+    return bool(
+        re.search(
+            (
+                r"park|garden|public space|litter|garbage|"
+                r"trash|waste|graffiti|wall|tree|plant|"
+                r"clean(?:ing|up)?|playground|community space"
+            ),
+            text_value
+        )
+    )
+
+
+def latest_citykeeper_evidence(
+    db: Session,
+    complaint_id: int
+):
+    return db.query(
+        models.Evidence
+    ).filter(
+        models.Evidence.complaint_id ==
+        complaint_id,
+        models.Evidence.evidence_type ==
+        "citykeeper_after"
+    ).order_by(
+        models.Evidence.uploaded_at.desc(),
+        models.Evidence.evidence_id.desc()
+    ).first()
+
+
+def citykeeper_verification_for_evidence(
+    db: Session,
+    evidence_id: int
+):
+    return db.query(
+        models.CitykeeperVerification
+    ).filter(
+        models.CitykeeperVerification.evidence_id ==
+        evidence_id
+    ).order_by(
+        models.CitykeeperVerification.created_at.desc(),
+        models.CitykeeperVerification.verification_id.desc()
+    ).first()
+
+
+def serialize_citykeeper_verification(
+    verification
+):
+    if not verification:
+        return None
+
+    return {
+        "verification_id":
+            verification.verification_id,
+        "complaint_id":
+            verification.complaint_id,
+        "evidence_id":
+            verification.evidence_id,
+        "verified_by_user":
+            verification.verified_by_user,
+        "decision":
+            verification.decision,
+        "created_at":
+            verification.created_at
+    }
 
 
 # =========================================================
@@ -132,16 +822,16 @@ app.add_middleware(
 
 @app.get("/")
 def home(): 
-    return FileResponse("index.html")
+    return FileResponse(str(BASE_DIR / "index.html"))
 
 @app.get("/style.css")
 def style():
-    return FileResponse("style.css", media_type="text/css")
+    return FileResponse(str(BASE_DIR / "style.css"), media_type="text/css")
 
 
 @app.get("/script.js")
 def script():
-    return FileResponse("script.js", media_type="application/javascript")
+    return FileResponse(str(BASE_DIR / "script.js"), media_type="application/javascript")
 
 
 # =========================================================
@@ -151,6 +841,7 @@ def script():
 @app.post("/users")
 def create_user(
     user: schemas.UserCreate,
+    current_user: models.User = Depends(require_authority_user),
     db: Session = Depends(get_db)
 ):
     new_user = models.User(
@@ -168,13 +859,17 @@ def create_user(
 
 
 @app.get("/users")
-def get_users(db: Session = Depends(get_db)):
+def get_users(
+    current_user: models.User = Depends(require_authority_user),
+    db: Session = Depends(get_db)
+):
     return db.query(models.User).all()
 
 
 @app.get("/users/{user_id}")
 def get_user(
     user_id: int,
+    current_user: models.User = Depends(require_authority_user),
     db: Session = Depends(get_db)
 ):
     user = db.query(models.User).filter(
@@ -266,31 +961,91 @@ def get_officer(
 # COMPLAINTS
 # =========================================================
 
+def validate_complaint_references(db: Session, complaint: schemas.ComplaintCreate):
+    city = db.query(models.City).filter(
+        models.City.city_id == complaint.city_id
+    ).first()
+    category = db.query(models.Category).filter(
+        models.Category.category_id == complaint.category_id
+    ).first()
+    department = db.query(models.Department).filter(
+        models.Department.department_id == complaint.department_id
+    ).first()
+
+    if not city:
+        raise HTTPException(status_code=400, detail="Select a valid city.")
+    if not category:
+        raise HTTPException(status_code=400, detail="Select a valid category.")
+    if not department:
+        raise HTTPException(status_code=400, detail="Select a valid department.")
+    if department.city_id and department.city_id != city.city_id:
+        raise HTTPException(
+            status_code=400,
+            detail="The selected department does not belong to the selected city."
+        )
+
+    if not str(complaint.description or "").strip():
+        raise HTTPException(status_code=400, detail="Complaint description is required.")
+    if not str(complaint.location or "").strip():
+        raise HTTPException(status_code=400, detail="Complaint location is required.")
+
+    priority = str(complaint.priority or "Medium").strip().title()
+    if priority not in {"Low", "Medium", "High"}:
+        raise HTTPException(status_code=400, detail="Priority must be Low, Medium or High.")
+
+    return priority
+
+
 @app.post("/complaints")
 def create_complaint(
     complaint: schemas.ComplaintCreate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
+    priority = validate_complaint_references(db, complaint)
+    current_user = optional_cityfile_user(request, db)
+
     new_complaint = models.Complaint(
-        user_id=complaint.user_id,
+        # Ownership is derived from Clerk, never from a client-supplied user_id.
+        user_id=current_user.user_id if current_user else None,
         city_id=complaint.city_id,
         category_id=complaint.category_id,
         department_id=complaint.department_id,
-        description=complaint.description,
-        location=complaint.location,
-        priority=complaint.priority,
+        description=str(complaint.description).strip(),
+        location=str(complaint.location).strip(),
+        priority=priority,
         status="Submitted",
         deadline=complaint.deadline
     )
 
     db.add(new_complaint)
+    db.flush()
+
+    if any([
+        complaint.reporter_name,
+        complaint.reporter_email,
+        complaint.reporter_phone,
+        complaint.reporter_public_user_id
+    ]):
+        db.add(
+            models.ComplaintReporter(
+                complaint_id=new_complaint.complaint_id,
+                name=(complaint.reporter_name or "").strip() or None,
+                email=(complaint.reporter_email or "").strip() or None,
+                phone=(complaint.reporter_phone or "").strip() or None,
+                public_user_id=(
+                    complaint.reporter_public_user_id or ""
+                ).strip() or None
+            )
+        )
+
     db.commit()
     db.refresh(new_complaint)
 
-    # Add complaint to Cityfile blockchain
-    block = blockchain.add_complaint(
+    block = append_integrity_event(
         new_complaint.complaint_id,
         {
+            "event": "complaint_created",
             "description": new_complaint.description,
             "location": new_complaint.location,
             "priority": new_complaint.priority,
@@ -298,24 +1053,34 @@ def create_complaint(
         }
     )
 
-    return {
-        "complaint_id": new_complaint.complaint_id,
-        "user_id": new_complaint.user_id,
-        "city_id": new_complaint.city_id,
-        "category_id": new_complaint.category_id,
-        "department_id": new_complaint.department_id,
-        "description": new_complaint.description,
-        "location": new_complaint.location,
-        "priority": new_complaint.priority,
-        "status": new_complaint.status,
-        "blockchain_hash": block.hash,
-        "block_index": block.index
-    }
+    # serialize_complaint looks up the first complaint block, so a failed local
+    # hash-chain append simply appears as unanchored rather than being faked.
+    return serialize_complaint(db, new_complaint)
 
 
 @app.get("/complaints")
 def get_complaints(db: Session = Depends(get_db)):
-    return db.query(models.Complaint).all()
+    complaints = db.query(models.Complaint).order_by(
+        models.Complaint.created_at.desc(),
+        models.Complaint.complaint_id.desc()
+    ).all()
+
+    return [serialize_complaint(db, complaint) for complaint in complaints]
+
+
+@app.get("/me/complaints")
+def get_my_complaints(
+    current_user: models.User = Depends(require_cityfile_user),
+    db: Session = Depends(get_db)
+):
+    complaints = db.query(models.Complaint).filter(
+        models.Complaint.user_id == current_user.user_id
+    ).order_by(
+        models.Complaint.created_at.desc(),
+        models.Complaint.complaint_id.desc()
+    ).all()
+
+    return [serialize_complaint(db, complaint) for complaint in complaints]
 
 
 @app.get("/complaints/{complaint_id}")
@@ -328,18 +1093,16 @@ def get_complaint(
     ).first()
 
     if not complaint:
-        raise HTTPException(
-            status_code=404,
-            detail="Complaint not found"
-        )
+        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    return complaint
+    return serialize_complaint(db, complaint)
 
 
 @app.put("/complaints/{complaint_id}")
 def update_complaint(
     complaint_id: int,
     data: schemas.ComplaintUpdateSchema,
+    current_user: models.User = Depends(require_authority_user),
     db: Session = Depends(get_db)
 ):
     complaint = db.query(models.Complaint).filter(
@@ -347,37 +1110,59 @@ def update_complaint(
     ).first()
 
     if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    if str(complaint.status or "").lower() in {"verified", "closed"}:
         raise HTTPException(
-            status_code=404,
-            detail="Complaint not found"
+            status_code=409,
+            detail="A citizen-verified complaint cannot be silently reopened by authority."
         )
 
     old_status = complaint.status
 
-    # ---------------------------------------------------------
-    # R2 RULE:
-    # A complaint cannot be marked Resolved without
-    # resolution evidence submitted by an officer.
-    # ---------------------------------------------------------
     if data.status is not None:
+        latest_attempt = latest_authority_attempt(db, complaint_id)
+        if latest_attempt and not resolution_review_for_attempt(db, latest_attempt.attempt_id):
+            raise HTTPException(
+                status_code=409,
+                detail="This complaint is awaiting citizen verification of the latest proof."
+            )
 
-        if data.status.lower() == "resolved":
+        status_key = str(data.status).strip().lower().replace("_", " ")
+        allowed = {
+            "acknowledged": "Acknowledged",
+            "in progress": "In Progress"
+        }
 
-            officer_evidence = db.query(models.Evidence).filter(
-                models.Evidence.complaint_id == complaint_id,
-                models.Evidence.uploaded_by_officer.isnot(None)
-            ).first()
-
-            if not officer_evidence:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Complaint cannot be marked Resolved without officer resolution evidence."
+        if status_key not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Authority may directly set only Acknowledged or In Progress. "
+                    "Resolution requires proof and citizen verification."
                 )
+            )
 
-        complaint.status = data.status
+        new_status = allowed[status_key]
+        if complaint.status != new_status:
+            complaint.status = new_status
+            db.add(
+                models.ComplaintUpdate(
+                    complaint_id=complaint_id,
+                    officer_id=None,
+                    status=new_status,
+                    comment="Authority status update"
+                )
+            )
 
     if data.priority is not None:
-        complaint.priority = data.priority
+        priority = str(data.priority).strip().title()
+        if priority not in {"Low", "Medium", "High"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Priority must be Low, Medium or High."
+            )
+        complaint.priority = priority
 
     if data.deadline is not None:
         complaint.deadline = data.deadline
@@ -385,37 +1170,21 @@ def update_complaint(
     db.commit()
     db.refresh(complaint)
 
-    # ---------------------------------------------------------
-    # Record important status changes on CivicChain
-    # ---------------------------------------------------------
-    blockchain_result = None
+    append_integrity_event(
+        complaint_id,
+        {
+            "event": "authority_status_updated",
+            "old_status": old_status,
+            "status": complaint.status,
+            "priority": complaint.priority,
+            "deadline": complaint.deadline.isoformat() if complaint.deadline else None,
+            "authority_user_id": current_user.user_id
+        }
+    )
 
-    if data.status is not None and old_status != complaint.status:
+    return serialize_complaint(db, complaint)
 
-        blockchain_result = blockchain.add_complaint(
-            complaint_id,
-            {
-                "event": "authority_status_update",
-                "complaint_id": complaint_id,
-                "old_status": old_status,
-                "new_status": complaint.status,
-                "actor": "Authority"
-            }
-        )
 
-    response = {
-        "complaint_id": complaint.complaint_id,
-        "status": complaint.status,
-        "priority": complaint.priority,
-        "deadline": complaint.deadline
-    }
-
-    if blockchain_result:
-        response["blockchain_hash"] = blockchain_result.hash
-        response["block_index"] = blockchain_result.index
-        response["blockchain_event"] = "authority_status_update"
-
-    return response
 # =========================================================
 # COMPLAINT ASSIGNMENTS
 # =========================================================
@@ -423,8 +1192,21 @@ def update_complaint(
 @app.post("/assignments")
 def assign_complaint(
     assignment: schemas.AssignmentCreate,
+    current_user: models.User = Depends(require_authority_user),
     db: Session = Depends(get_db)
 ):
+    complaint = db.query(models.Complaint).filter(
+        models.Complaint.complaint_id == assignment.complaint_id
+    ).first()
+    officer = db.query(models.Officer).filter(
+        models.Officer.officer_id == assignment.officer_id
+    ).first()
+
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    if not officer:
+        raise HTTPException(status_code=404, detail="Officer not found")
+
     new_assignment = models.ComplaintAssignment(
         complaint_id=assignment.complaint_id,
         officer_id=assignment.officer_id
@@ -434,14 +1216,24 @@ def assign_complaint(
     db.commit()
     db.refresh(new_assignment)
 
+    append_integrity_event(
+        assignment.complaint_id,
+        {
+            "event": "complaint_assigned",
+            "officer_id": assignment.officer_id,
+            "authority_user_id": current_user.user_id
+        }
+    )
+
     return new_assignment
 
 
 @app.get("/assignments")
-def get_assignments(db: Session = Depends(get_db)):
-    return db.query(
-        models.ComplaintAssignment
-    ).all()
+def get_assignments(
+    current_user: models.User = Depends(require_authority_user),
+    db: Session = Depends(get_db)
+):
+    return db.query(models.ComplaintAssignment).all()
 
 
 # =========================================================
@@ -450,6 +1242,7 @@ def get_assignments(db: Session = Depends(get_db)):
 @app.post("/complaint-updates")
 def create_complaint_update(
     update: schemas.ComplaintUpdateCreate,
+    current_user: models.User = Depends(require_authority_user),
     db: Session = Depends(get_db)
 ):
     complaint = db.query(models.Complaint).filter(
@@ -457,83 +1250,55 @@ def create_complaint_update(
     ).first()
 
     if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    latest_attempt = latest_authority_attempt(db, update.complaint_id)
+    if latest_attempt and not resolution_review_for_attempt(db, latest_attempt.attempt_id):
         raise HTTPException(
-            status_code=404,
-            detail="Complaint not found"
+            status_code=409,
+            detail="This complaint is awaiting citizen verification of the latest proof."
         )
 
-    old_status = complaint.status
-
-    # ---------------------------------------------------------
-    # R2 RULE:
-    # Resolved requires officer evidence.
-    # ---------------------------------------------------------
-    if update.status.lower() == "resolved":
-
-        officer_evidence = db.query(models.Evidence).filter(
-            models.Evidence.complaint_id == update.complaint_id,
-            models.Evidence.uploaded_by_officer.isnot(None)
-        ).first()
-
-        if not officer_evidence:
-            raise HTTPException(
-                status_code=400,
-                detail="Complaint cannot be marked Resolved without officer resolution evidence."
+    status_key = str(update.status or "").strip().lower().replace("_", " ")
+    allowed = {
+        "acknowledged": "Acknowledged",
+        "in progress": "In Progress"
+    }
+    if status_key not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Use the authority resolution endpoint for a completed fix; "
+                "citizen verification controls final closure."
             )
+        )
 
-    # Create complaint update record
+    canonical_status = allowed[status_key]
+
     new_update = models.ComplaintUpdate(
         complaint_id=update.complaint_id,
         officer_id=update.officer_id,
-        status=update.status,
+        status=canonical_status,
         comment=update.comment
     )
-
-    # Update complaint status
-    complaint.status = update.status
+    complaint.status = canonical_status
 
     db.add(new_update)
     db.commit()
     db.refresh(new_update)
 
-    # ---------------------------------------------------------
-    # Record status change on CivicChain
-    # ---------------------------------------------------------
-    blockchain_result = None
+    append_integrity_event(
+        update.complaint_id,
+        {
+            "event": "authority_status_updated",
+            "status": canonical_status,
+            "comment": update.comment,
+            "officer_id": update.officer_id,
+            "authority_user_id": current_user.user_id
+        }
+    )
 
-    if old_status != complaint.status:
-
-        blockchain_result = blockchain.add_complaint(
-            update.complaint_id,
-            {
-                "event": "authority_status_update",
-                "complaint_id": update.complaint_id,
-                "old_status": old_status,
-                "new_status": complaint.status,
-                "officer_id": update.officer_id,
-                "comment": update.comment,
-                "actor": "Authority"
-            }
-        )
-
-    response = {
-        "update_id": new_update.update_id,
-        "complaint_id": new_update.complaint_id,
-        "officer_id": new_update.officer_id,
-        "status": new_update.status,
-        "comment": new_update.comment,
-        "updated_at": new_update.updated_at
-    }
-
-    if blockchain_result:
-        response["blockchain_hash"] = blockchain_result.hash
-        response["block_index"] = blockchain_result.index
-        response["blockchain_event"] = "authority_status_update"
-
-    return response
-
-
-   
+    return new_update
 
 
 @app.get("/complaints/{complaint_id}/updates")
@@ -541,10 +1306,11 @@ def get_complaint_updates(
     complaint_id: int,
     db: Session = Depends(get_db)
 ):
-    return db.query(
-        models.ComplaintUpdate
-    ).filter(
+    return db.query(models.ComplaintUpdate).filter(
         models.ComplaintUpdate.complaint_id == complaint_id
+    ).order_by(
+        models.ComplaintUpdate.updated_at.asc(),
+        models.ComplaintUpdate.update_id.asc()
     ).all()
 
 # =========================================================
@@ -556,12 +1322,10 @@ def register_evidence_on_web3(
     evidence_hash: str,
     evidence_type: str
 ):
-    if not web3 or not contract or not account:
+    if not web3 or not contract or not account or not PRIVATE_KEY:
         return None
 
-    nonce = web3.eth.get_transaction_count(
-        account.address
-    )
+    nonce = web3.eth.get_transaction_count(account.address)
 
     transaction = contract.functions.registerEvidence(
         int(complaint_id),
@@ -580,59 +1344,62 @@ def register_evidence_on_web3(
         PRIVATE_KEY
     )
 
-    if hasattr(signed_transaction, "raw_transaction"):
-        raw_transaction = signed_transaction.raw_transaction
-    else:
-        raw_transaction = signed_transaction.rawTransaction
-
-    transaction_hash = web3.eth.send_raw_transaction(
-        raw_transaction
+    raw_transaction = getattr(
+        signed_transaction,
+        "raw_transaction",
+        getattr(signed_transaction, "rawTransaction", None)
     )
 
-    receipt = web3.eth.wait_for_transaction_receipt(
-        transaction_hash
-    )
+    if raw_transaction is None:
+        raise RuntimeError("Could not read signed Web3 transaction bytes.")
+
+    transaction_hash = web3.eth.send_raw_transaction(raw_transaction)
+    receipt = web3.eth.wait_for_transaction_receipt(transaction_hash)
 
     return {
         "transaction_hash": transaction_hash.hex(),
         "block_number": receipt.blockNumber,
         "evidence_hash": evidence_hash
     }
-#evidence
+
+
+PRIVILEGED_EVIDENCE_TYPES = {
+    "citykeeper_after",
+    "authority_resolution",
+    "authority_proof"
+}
+
 
 @app.post("/evidence")
 def add_evidence(
     evidence: schemas.EvidenceCreate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
-    # Check complaint exists
+    normalized_type = str(
+        evidence.evidence_type or "citizen_report"
+    ).strip().lower()
+
+    if normalized_type in PRIVILEGED_EVIDENCE_TYPES:
+        raise HTTPException(
+            status_code=403,
+            detail="Use the workflow-specific authenticated evidence endpoint."
+        )
+
     complaint = db.query(models.Complaint).filter(
         models.Complaint.complaint_id == evidence.complaint_id
     ).first()
 
     if not complaint:
-        raise HTTPException(
-            status_code=404,
-            detail="Complaint not found"
-        )
+        raise HTTPException(status_code=404, detail="Complaint not found")
 
-    # Check officer exists if officer ID is provided
-    if evidence.uploaded_by_officer is not None:
+    current_user = optional_cityfile_user(request, db)
 
-        officer = db.query(models.Officer).filter(
-            models.Officer.officer_id == evidence.uploaded_by_officer
-        ).first()
-
-        if not officer:
-            raise HTTPException(
-                status_code=404,
-                detail="Officer not found"
-            )
-
-    # Create evidence record
     new_evidence = models.Evidence(
         complaint_id=evidence.complaint_id,
-        uploaded_by_officer=evidence.uploaded_by_officer,
+        uploaded_by_officer=None,
+        uploaded_by_user=current_user.user_id if current_user else None,
+        evidence_type=normalized_type,
         file_url=evidence.file_url,
         file_hash=evidence.file_hash,
         description=evidence.description
@@ -642,71 +1409,397 @@ def add_evidence(
     db.commit()
     db.refresh(new_evidence)
 
-    # ----------------------------------------------------------
-    # Record officer resolution evidence on CivicChain + Web3
-    # ----------------------------------------------------------
-    blockchain_result = None
-    web3_result = None
+    append_integrity_event(
+        evidence.complaint_id,
+        {
+            "event": "evidence_added",
+            "evidence_id": new_evidence.evidence_id,
+            "evidence_type": normalized_type,
+            "file_hash": new_evidence.file_hash
+        }
+    )
 
-    if evidence.uploaded_by_officer is not None:
+    return serialize_evidence(new_evidence)
 
-        # Existing CivicChain record
-        blockchain_result = blockchain.add_complaint(
-            evidence.complaint_id,
-            {
-                "event": "resolution_evidence_submitted",
-                "complaint_id": evidence.complaint_id,
-                "evidence_id": new_evidence.evidence_id,
-                "officer_id": evidence.uploaded_by_officer,
-                "file_hash": evidence.file_hash,
-                "description": evidence.description,
-                "actor": "Authority"
-            }
+
+@app.get("/complaints/{complaint_id}/evidence")
+def get_evidence(
+    complaint_id: int,
+    db: Session = Depends(get_db)
+):
+    return db.query(models.Evidence).filter(
+        models.Evidence.complaint_id == complaint_id
+    ).order_by(
+        models.Evidence.uploaded_at.asc(),
+        models.Evidence.evidence_id.asc()
+    ).all()
+
+
+async def store_complaint_image_evidence(
+    *,
+    complaint_id: int,
+    file: UploadFile,
+    evidence_type: str,
+    uploaded_by_user: int | None,
+    uploaded_by_officer: int | None,
+    description: str | None,
+    db: Session
+):
+    complaint = db.query(models.Complaint).filter(
+        models.Complaint.complaint_id == complaint_id
+    ).first()
+
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files are allowed")
+
+    contents = await file.read()
+
+    if not contents:
+        raise HTTPException(status_code=400, detail="Empty image")
+
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="Image is too large (maximum 10 MB)"
         )
 
-        # Web3 / Sepolia record
-        if evidence.file_hash:
+    file_hash = hashlib.sha256(contents).hexdigest()
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    allowed_extensions = {".jpg", ".jpeg", ".png", ".webp"}
+
+    if extension not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Unsupported image format")
+
+    complaint_folder = os.path.join(
+        UPLOADS_DIR,
+        "complaints",
+        str(complaint_id)
+    )
+    os.makedirs(complaint_folder, exist_ok=True)
+
+    filename = f"{evidence_type}_{uuid.uuid4().hex}{extension}"
+    file_path = os.path.join(complaint_folder, filename)
+
+    with open(file_path, "wb") as buffer:
+        buffer.write(contents)
+
+    file_url = f"/uploads/complaints/{complaint_id}/{filename}"
+
+    new_evidence = models.Evidence(
+        complaint_id=complaint_id,
+        uploaded_by_user=uploaded_by_user,
+        uploaded_by_officer=uploaded_by_officer,
+        evidence_type=evidence_type,
+        file_url=file_url,
+        file_hash=file_hash,
+        description=description
+    )
+
+    db.add(new_evidence)
+    db.commit()
+    db.refresh(new_evidence)
+
+    append_integrity_event(
+        complaint_id,
+        {
+            "event": "evidence_added",
+            "evidence_id": new_evidence.evidence_id,
+            "evidence_type": evidence_type,
+            "file_hash": file_hash
+        }
+    )
+
+    serialized = serialize_evidence(new_evidence)
+
+    # Preserve the remote branch's Sepolia evidence anchoring, but only for
+    # authenticated authority proof types. A Web3 outage must not erase the
+    # database/local-hash-chain record that was already created.
+    if evidence_type in {"authority_resolution", "authority_proof"} and file_hash:
+        try:
             web3_result = register_evidence_on_web3(
-                evidence.complaint_id,
-                evidence.file_hash,
+                complaint_id,
+                file_hash,
                 "resolution"
             )
+        except Exception as error:
+            print(
+                f"Web3 evidence anchor failed for complaint {complaint_id}: {error}"
+            )
+            web3_result = None
 
-    response = {
-        "evidence_id": new_evidence.evidence_id,
-        "complaint_id": new_evidence.complaint_id,
-        "uploaded_by_officer": new_evidence.uploaded_by_officer,
-        "file_url": new_evidence.file_url,
-        "file_hash": new_evidence.file_hash,
-        "description": new_evidence.description,
-        "uploaded_at": new_evidence.uploaded_at
-    }
-    if blockchain_result:
-        response["blockchain_hash"] = blockchain_result.hash
-        response["block_index"] = blockchain_result.index
-        response["blockchain_event"] = "resolution_evidence_submitted"
+        if web3_result:
+            serialized["web3_transaction_hash"] = web3_result["transaction_hash"]
+            serialized["web3_block_number"] = web3_result["block_number"]
+            serialized["web3_evidence_hash"] = web3_result["evidence_hash"]
 
-    if web3_result:
-        response["web3_transaction_hash"] = web3_result["transaction_hash"]
-        response["web3_block_number"] = web3_result["block_number"]
-        response["web3_evidence_hash"] = web3_result["evidence_hash"]
+    return serialized
 
-    return response
-   
 
-   
+@app.post("/complaints/{complaint_id}/evidence/upload")
+async def upload_complaint_evidence(
+    complaint_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    evidence_type: str = Form("citizen_report"),
+    uploaded_by_user: int | None = Form(None),
+    uploaded_by_officer: int | None = Form(None),
+    description: str | None = Form(None),
+    db: Session = Depends(get_db)
+):
+    normalized_type = str(evidence_type or "citizen_report").strip().lower()
+
+    if normalized_type in PRIVILEGED_EVIDENCE_TYPES:
+        raise HTTPException(
+            status_code=403,
+            detail="Use the workflow-specific authenticated evidence endpoint."
+        )
+
+    if uploaded_by_officer is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="Officer ownership cannot be supplied by the browser."
+        )
+
+    current_user = optional_cityfile_user(request, db)
+
+    return await store_complaint_image_evidence(
+        complaint_id=complaint_id,
+        file=file,
+        evidence_type=normalized_type,
+        uploaded_by_user=current_user.user_id if current_user else None,
+        uploaded_by_officer=None,
+        description=description,
+        db=db
+    )
+
+
 # =========================================================
-# REVIEWS
+# AUTHORITY RESOLUTION + CITIZEN VERIFICATION
+# =========================================================
+
+@app.post("/authority/complaints/{complaint_id}/resolution")
+async def submit_authority_resolution(
+    complaint_id: int,
+    file: UploadFile = File(...),
+    authority_label: str = Form(...),
+    note: str = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    accuracy_m: float | None = Form(None),
+    captured_at: str | None = Form(None),
+    current_user: models.User = Depends(require_authority_user),
+    db: Session = Depends(get_db)
+):
+    complaint = db.query(models.Complaint).filter(
+        models.Complaint.complaint_id == complaint_id
+    ).first()
+
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    if str(complaint.status or "").strip().lower() in {"verified", "closed"}:
+        raise HTTPException(status_code=409, detail="This complaint is already citizen verified.")
+
+    authority_label = str(authority_label or "").strip()
+    note = str(note or "").strip()
+    if not authority_label or not note:
+        raise HTTPException(status_code=400, detail="Authority label and work note are required.")
+
+    latest_attempt = latest_authority_attempt(db, complaint_id)
+    if latest_attempt:
+        latest_review = resolution_review_for_attempt(db, latest_attempt.attempt_id)
+        if not latest_review:
+            raise HTTPException(
+                status_code=409,
+                detail="The latest resolution attempt is still awaiting citizen verification."
+            )
+        if latest_review.decision == "verified":
+            raise HTTPException(status_code=409, detail="This complaint is already citizen verified.")
+        if latest_review.decision not in {"questioned", "reopened"}:
+            raise HTTPException(status_code=409, detail="The latest resolution attempt cannot be replaced.")
+
+    evidence_record = await store_complaint_image_evidence(
+        complaint_id=complaint_id,
+        file=file,
+        evidence_type="authority_resolution",
+        uploaded_by_user=current_user.user_id,
+        uploaded_by_officer=None,
+        description=note,
+        db=db
+    )
+
+    attempt = models.AuthorityResolutionAttempt(
+        complaint_id=complaint_id,
+        submitted_by_user_id=current_user.user_id,
+        authority_label=authority_label,
+        note=note,
+        file_url=evidence_record["file_url"],
+        file_hash=evidence_record["file_hash"],
+        latitude=latitude,
+        longitude=longitude,
+        accuracy_m=accuracy_m,
+        captured_at=parse_client_datetime(captured_at) or datetime.utcnow()
+    )
+
+    complaint.status = "Awaiting Verification"
+    db.add(attempt)
+    db.add(
+        models.ComplaintUpdate(
+            complaint_id=complaint_id,
+            officer_id=None,
+            status="Awaiting Verification",
+            comment=note
+        )
+    )
+    db.commit()
+    db.refresh(attempt)
+    db.refresh(complaint)
+
+    append_integrity_event(
+        complaint_id,
+        {
+            "event": "authority_resolution_submitted",
+            "attempt_id": attempt.attempt_id,
+            "file_hash": attempt.file_hash,
+            "latitude": attempt.latitude,
+            "longitude": attempt.longitude,
+            "status": complaint.status
+        }
+    )
+
+    return serialize_complaint(db, complaint)
+
+
+@app.post("/complaints/{complaint_id}/resolution-review")
+def review_authority_resolution(
+    complaint_id: int,
+    review_data: schemas.ResolutionReviewCreate,
+    current_user: models.User = Depends(require_cityfile_user),
+    db: Session = Depends(get_db)
+):
+    if is_authority_user(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Authority accounts cannot perform the citizen verification step."
+        )
+
+    complaint = db.query(models.Complaint).filter(
+        models.Complaint.complaint_id == complaint_id
+    ).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    attempt = latest_authority_attempt(db, complaint_id)
+    if not attempt:
+        raise HTTPException(status_code=404, detail="No authority resolution proof is awaiting review.")
+
+    existing = resolution_review_for_attempt(db, attempt.attempt_id)
+    if existing:
+        return {
+            "already_decided": True,
+            "review": serialize_resolution_review(existing),
+            "complaint": serialize_complaint(db, complaint)
+        }
+
+    decision = str(review_data.decision or "").strip().lower()
+    if decision not in {"verified", "questioned", "reopened"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Decision must be verified, questioned or reopened."
+        )
+
+    reason = str(review_data.reason or "").strip()
+    if decision in {"questioned", "reopened"} and not reason:
+        raise HTTPException(
+            status_code=400,
+            detail="A reason is required when the proof is questioned or the issue still exists."
+        )
+
+    if decision == "verified" and not reason:
+        reason = "Citizen verified the authority resolution evidence."
+
+    review = models.CitizenResolutionReview(
+        complaint_id=complaint_id,
+        attempt_id=attempt.attempt_id,
+        verified_by_user=current_user.user_id,
+        decision=decision,
+        reason=reason
+    )
+
+    new_status = "Verified" if decision == "verified" else "Disputed"
+    complaint.status = new_status
+
+    db.add(review)
+    db.add(
+        models.ComplaintUpdate(
+            complaint_id=complaint_id,
+            officer_id=None,
+            status=new_status,
+            comment=f"Citizen resolution review: {decision}. {reason}"
+        )
+    )
+    db.commit()
+    db.refresh(review)
+    db.refresh(complaint)
+
+    append_integrity_event(
+        complaint_id,
+        {
+            "event": "citizen_resolution_reviewed",
+            "attempt_id": attempt.attempt_id,
+            "resolution_review_id": review.resolution_review_id,
+            "decision": decision,
+            "status": new_status
+        }
+    )
+
+    return {
+        "already_decided": False,
+        "review": serialize_resolution_review(review),
+        "complaint": serialize_complaint(db, complaint)
+    }
+
+
+@app.get("/complaints/{complaint_id}/resolution-attempts")
+def get_resolution_attempts(
+    complaint_id: int,
+    db: Session = Depends(get_db)
+):
+    complaint = db.query(models.Complaint).filter(
+        models.Complaint.complaint_id == complaint_id
+    ).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
+    attempts = authority_attempts_for_complaint(db, complaint_id)
+    return [
+        serialize_authority_attempt(db, attempt, index + 1)
+        for index, attempt in enumerate(attempts)
+    ]
+
+
+# =========================================================
+# GENERIC RATING REVIEWS
 # =========================================================
 
 @app.post("/reviews")
 def create_review(
     review: schemas.ReviewCreate,
+    current_user: models.User = Depends(require_cityfile_user),
     db: Session = Depends(get_db)
 ):
+    complaint = db.query(models.Complaint).filter(
+        models.Complaint.complaint_id == review.complaint_id
+    ).first()
+    if not complaint:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+
     new_review = models.Review(
         complaint_id=review.complaint_id,
-        user_id=review.user_id,
+        user_id=current_user.user_id,
         rating=review.rating,
         comment=review.comment
     )
@@ -723,22 +1816,905 @@ def get_reviews(
     complaint_id: int,
     db: Session = Depends(get_db)
 ):
-    return db.query(
-        models.Review
-    ).filter(
+    return db.query(models.Review).filter(
         models.Review.complaint_id == complaint_id
     ).all()
 
+
 @app.get("/blockchain")
 def get_blockchain():
+    return {
+        "type": "local_sha256_hash_chain",
+        "is_public_blockchain": False,
+        "valid": bool(blockchain.verify_chain()),
+        "error": blockchain.integrity_error,
+        "blocks": [
+            {
+                "index": block.index,
+                "complaint_id": block.complaint_id,
+                "timestamp": block.timestamp,
+                "data": block.data,
+                "previous_hash": block.previous_hash,
+                "hash": block.hash
+            }
+            for block in blockchain.chain
+        ]
+    }
+
+
+
+# =========================================================
+# CITYKEEPERS - BACKEND-DRIVEN COMMUNITY ACTION
+# =========================================================
+
+@app.get("/citykeepers/mission-stats")
+def get_citykeeper_mission_stats(
+    db: Session = Depends(get_db)
+):
+    """
+    Public, non-identifying mission counts.
+    Anonymous prototype rows are intentionally excluded.
+    """
+
+    participations = db.query(
+        models.CitykeeperParticipation
+    ).filter(
+        models.CitykeeperParticipation.status ==
+        "Joined",
+        models.CitykeeperParticipation.user_id.isnot(
+            None
+        )
+    ).all()
+
+    evidence_records = db.query(
+        models.Evidence
+    ).filter(
+        models.Evidence.evidence_type ==
+        "citykeeper_after",
+        models.Evidence.uploaded_by_user.isnot(
+            None
+        )
+    ).all()
+
+    verifications = db.query(
+        models.CitykeeperVerification
+    ).filter(
+        models.CitykeeperVerification.decision ==
+        "verified"
+    ).all()
+
+    stats = {}
+
+    def ensure_record(complaint_id):
+        key = int(complaint_id)
+
+        if key not in stats:
+            stats[key] = {
+                "complaint_id": key,
+                "participant_count": 0,
+                "evidence_count": 0,
+                "verified_count": 0
+            }
+
+        return stats[key]
+
+    seen_participants = set()
+
+    for participation in participations:
+        pair = (
+            participation.complaint_id,
+            participation.user_id
+        )
+
+        if pair in seen_participants:
+            continue
+
+        seen_participants.add(pair)
+
+        ensure_record(
+            participation.complaint_id
+        )["participant_count"] += 1
+
+    evidence_by_id = {}
+
+    for evidence in evidence_records:
+        evidence_by_id[
+            evidence.evidence_id
+        ] = evidence
+
+        ensure_record(
+            evidence.complaint_id
+        )["evidence_count"] += 1
+
+    for verification in verifications:
+        evidence = evidence_by_id.get(
+            verification.evidence_id
+        )
+
+        if not evidence:
+            continue
+
+        ensure_record(
+            evidence.complaint_id
+        )["verified_count"] += 1
+
+    return list(
+        stats.values()
+    )
+
+
+@app.post("/citykeepers/{complaint_id}/join")
+def join_citykeeper_mission(
+    complaint_id: int,
+    current_user: models.User = Depends(
+        require_cityfile_user
+    ),
+    db: Session = Depends(get_db)
+):
+    complaint = db.query(
+        models.Complaint
+    ).filter(
+        models.Complaint.complaint_id ==
+        complaint_id
+    ).first()
+
+    if not complaint:
+        raise HTTPException(
+            status_code=404,
+            detail="Complaint not found"
+        )
+
+    if not citykeeper_community_eligible(
+        complaint
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This complaint is not eligible "
+                "for community-safe action."
+            )
+        )
+
+    latest_evidence = latest_citykeeper_evidence(
+        db,
+        complaint_id
+    )
+
+    if latest_evidence:
+        latest_verification = (
+            citykeeper_verification_for_evidence(
+                db,
+                latest_evidence.evidence_id
+            )
+        )
+
+        if not latest_verification:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This community mission already "
+                    "has evidence awaiting verification."
+                )
+            )
+
+        if (
+            latest_verification.decision ==
+            "verified"
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This community mission already "
+                    "has verified impact."
+                )
+            )
+
+    existing_participation = db.query(
+        models.CitykeeperParticipation
+    ).filter(
+        models.CitykeeperParticipation.complaint_id ==
+        complaint_id,
+        models.CitykeeperParticipation.user_id ==
+        current_user.user_id,
+        models.CitykeeperParticipation.status ==
+        "Joined"
+    ).first()
+
+    if existing_participation:
+        return {
+            "participation_id":
+                existing_participation.participation_id,
+            "complaint_id":
+                existing_participation.complaint_id,
+            "user_id":
+                existing_participation.user_id,
+            "status":
+                existing_participation.status,
+            "joined_at":
+                existing_participation.joined_at,
+            "already_joined":
+                True
+        }
+
+    participation = (
+        models.CitykeeperParticipation(
+            complaint_id=complaint_id,
+            user_id=current_user.user_id,
+            status="Joined"
+        )
+    )
+
+    db.add(participation)
+    db.commit()
+    db.refresh(participation)
+
+    return {
+        "participation_id":
+            participation.participation_id,
+        "complaint_id":
+            participation.complaint_id,
+        "user_id":
+            participation.user_id,
+        "status":
+            participation.status,
+        "joined_at":
+            participation.joined_at,
+        "already_joined":
+            False
+    }
+
+
+@app.get("/citykeepers/participations")
+def get_citykeeper_participations(
+    current_user: models.User = Depends(
+        require_cityfile_user
+    ),
+    db: Session = Depends(get_db)
+):
+    participations = db.query(
+        models.CitykeeperParticipation
+    ).filter(
+        models.CitykeeperParticipation.user_id ==
+        current_user.user_id,
+        models.CitykeeperParticipation.status ==
+        "Joined"
+    ).order_by(
+        models.CitykeeperParticipation.joined_at.desc(),
+        models.CitykeeperParticipation.participation_id.desc()
+    ).all()
+
     return [
         {
-            "index": block.index,
-            "complaint_id": block.complaint_id,
-            "timestamp": block.timestamp,
-            "data": block.data,
-            "previous_hash": block.previous_hash,
-            "hash": block.hash
+            "participation_id":
+                participation.participation_id,
+            "complaint_id":
+                participation.complaint_id,
+            "user_id":
+                participation.user_id,
+            "status":
+                participation.status,
+            "joined_at":
+                participation.joined_at
         }
-        for block in blockchain.chain
-    ]   
+        for participation in participations
+    ]
+
+
+@app.get("/citykeepers/{complaint_id}/evidence")
+def get_citykeeper_evidence(
+    complaint_id: int,
+    db: Session = Depends(get_db)
+):
+    evidence = latest_citykeeper_evidence(
+        db,
+        complaint_id
+    )
+
+    if not evidence:
+        return None
+
+    contributor = None
+
+    if evidence.uploaded_by_user:
+        contributor = db.query(
+            models.User
+        ).filter(
+            models.User.user_id ==
+            evidence.uploaded_by_user
+        ).first()
+
+    return {
+        "evidence_id":
+            evidence.evidence_id,
+        "complaint_id":
+            evidence.complaint_id,
+        "evidence_type":
+            evidence.evidence_type,
+        "file_url":
+            evidence.file_url,
+        "file_hash":
+            evidence.file_hash,
+        "description":
+            evidence.description,
+        "uploaded_by_user":
+            evidence.uploaded_by_user,
+        "contributor_public_id":
+            (
+                contributor.public_user_id
+                if contributor
+                else None
+            ),
+        "uploaded_at":
+            evidence.uploaded_at
+    }
+
+
+@app.post(
+    "/citykeepers/{complaint_id}/evidence/upload"
+)
+async def upload_citykeeper_evidence(
+    complaint_id: int,
+    file: UploadFile = File(...),
+    description: str | None = Form(None),
+    current_user: models.User = Depends(
+        require_cityfile_user
+    ),
+    db: Session = Depends(get_db)
+):
+    complaint = db.query(
+        models.Complaint
+    ).filter(
+        models.Complaint.complaint_id ==
+        complaint_id
+    ).first()
+
+    if not complaint:
+        raise HTTPException(
+            status_code=404,
+            detail="Complaint not found"
+        )
+
+    if not citykeeper_community_eligible(
+        complaint
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This complaint is not eligible "
+                "for community-safe action."
+            )
+        )
+
+    participation = db.query(
+        models.CitykeeperParticipation
+    ).filter(
+        models.CitykeeperParticipation.complaint_id ==
+        complaint_id,
+        models.CitykeeperParticipation.user_id ==
+        current_user.user_id,
+        models.CitykeeperParticipation.status ==
+        "Joined"
+    ).first()
+
+    if not participation:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Join this Citykeeper mission before "
+                "submitting community evidence."
+            )
+        )
+
+    latest_evidence = latest_citykeeper_evidence(
+        db,
+        complaint_id
+    )
+
+    if latest_evidence:
+        latest_verification = (
+            citykeeper_verification_for_evidence(
+                db,
+                latest_evidence.evidence_id
+            )
+        )
+
+        # Pending evidence remains the active proof.
+        if not latest_verification:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Community evidence is already "
+                    "awaiting citizen verification."
+                )
+            )
+
+        # A verified mission is complete.
+        if (
+            latest_verification.decision ==
+            "verified"
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This community mission already "
+                    "has verified impact."
+                )
+            )
+
+        # Rejected evidence can be followed by a new proof.
+        if (
+            latest_verification.decision !=
+            "rejected"
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "A community evidence decision "
+                    "already exists."
+                )
+            )
+
+    return await store_complaint_image_evidence(
+        complaint_id=complaint_id,
+        file=file,
+        evidence_type="citykeeper_after",
+        uploaded_by_user=current_user.user_id,
+        uploaded_by_officer=None,
+        description=description,
+        db=db
+    )
+
+
+@app.post("/citykeepers/{complaint_id}/verify")
+def verify_citykeeper_evidence(
+    complaint_id: int,
+    decision: str,
+    current_user: models.User = Depends(
+        require_cityfile_user
+    ),
+    db: Session = Depends(get_db)
+):
+    decision = decision.lower().strip()
+
+    if decision not in {
+        "verified",
+        "rejected"
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Decision must be 'verified' "
+                "or 'rejected'."
+            )
+        )
+
+    complaint = db.query(
+        models.Complaint
+    ).filter(
+        models.Complaint.complaint_id ==
+        complaint_id
+    ).first()
+
+    if not complaint:
+        raise HTTPException(
+            status_code=404,
+            detail="Complaint not found"
+        )
+
+    evidence = latest_citykeeper_evidence(
+        db,
+        complaint_id
+    )
+
+    if not evidence:
+        raise HTTPException(
+            status_code=404,
+            detail="No Citykeeper evidence found"
+        )
+
+    if (
+        evidence.uploaded_by_user and
+        evidence.uploaded_by_user ==
+        current_user.user_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "A Citykeeper cannot verify their "
+                "own community evidence."
+            )
+        )
+
+    existing = (
+        citykeeper_verification_for_evidence(
+            db,
+            evidence.evidence_id
+        )
+    )
+
+    # Decisions are append-only per evidence item.
+    # Once this proof has a verdict, do not silently overwrite it.
+    if existing:
+        return {
+            **serialize_citykeeper_verification(
+                existing
+            ),
+            "already_decided": True
+        }
+
+    verification = (
+        models.CitykeeperVerification(
+            evidence_id=evidence.evidence_id,
+            complaint_id=complaint_id,
+            verified_by_user=current_user.user_id,
+            decision=decision
+        )
+    )
+
+    db.add(verification)
+    db.commit()
+    db.refresh(verification)
+
+    append_integrity_event(
+        complaint_id,
+        {
+            "event": "citykeeper_evidence_reviewed",
+            "evidence_id": evidence.evidence_id,
+            "verification_id": verification.verification_id,
+            "decision": decision
+        }
+    )
+
+    return {
+        **serialize_citykeeper_verification(
+            verification
+        ),
+        "already_decided": False
+    }
+
+
+@app.get(
+    "/citykeepers/{complaint_id}/verification"
+)
+def get_citykeeper_verification(
+    complaint_id: int,
+    db: Session = Depends(get_db)
+):
+    evidence = latest_citykeeper_evidence(
+        db,
+        complaint_id
+    )
+
+    if not evidence:
+        return None
+
+    verification = (
+        citykeeper_verification_for_evidence(
+            db,
+            evidence.evidence_id
+        )
+    )
+
+    return serialize_citykeeper_verification(
+        verification
+    )
+
+
+@app.get("/citykeepers/me")
+def get_citykeeper_profile(
+    current_user: models.User = Depends(
+        require_cityfile_user
+    ),
+    db: Session = Depends(get_db)
+):
+    participations = db.query(
+        models.CitykeeperParticipation
+    ).filter(
+        models.CitykeeperParticipation.user_id ==
+        current_user.user_id,
+        models.CitykeeperParticipation.status ==
+        "Joined"
+    ).order_by(
+        models.CitykeeperParticipation.joined_at.desc(),
+        models.CitykeeperParticipation.participation_id.desc()
+    ).all()
+
+    own_evidence = db.query(
+        models.Evidence
+    ).filter(
+        models.Evidence.evidence_type ==
+        "citykeeper_after",
+        models.Evidence.uploaded_by_user ==
+        current_user.user_id
+    ).order_by(
+        models.Evidence.uploaded_at.desc(),
+        models.Evidence.evidence_id.desc()
+    ).all()
+
+    own_evidence_by_complaint = {}
+
+    for evidence in own_evidence:
+        own_evidence_by_complaint.setdefault(
+            evidence.complaint_id,
+            evidence
+        )
+
+    verified_count = 0
+
+    verified_evidence_ids = set()
+
+    for evidence in own_evidence:
+        verification = (
+            citykeeper_verification_for_evidence(
+                db,
+                evidence.evidence_id
+            )
+        )
+
+        if (
+            verification and
+            verification.decision ==
+            "verified"
+        ):
+            verified_count += 1
+            verified_evidence_ids.add(
+                evidence.evidence_id
+            )
+
+    trail = []
+
+    for participation in participations:
+        evidence = own_evidence_by_complaint.get(
+            participation.complaint_id
+        )
+
+        verification = None
+
+        if evidence:
+            verification = (
+                citykeeper_verification_for_evidence(
+                    db,
+                    evidence.evidence_id
+                )
+            )
+
+        if (
+            verification and
+            verification.decision ==
+            "verified"
+        ):
+            status_label = "VERIFIED IMPACT"
+            status_class = "verified"
+            status_time = (
+                verification.created_at or
+                evidence.uploaded_at
+            )
+        elif (
+            verification and
+            verification.decision ==
+            "rejected"
+        ):
+            status_label = "NEW PROOF NEEDED"
+            status_class = "evidence"
+            status_time = (
+                verification.created_at or
+                evidence.uploaded_at
+            )
+        elif evidence:
+            status_label = (
+                "AWAITING CITIZEN VERIFICATION"
+            )
+            status_class = "evidence"
+            status_time = evidence.uploaded_at
+        else:
+            status_label = "MISSION JOINED"
+            status_class = "joined"
+            status_time = participation.joined_at
+
+        trail.append({
+            "complaint_id":
+                participation.complaint_id,
+            "participation_id":
+                participation.participation_id,
+            "joined_at":
+                participation.joined_at,
+            "evidence_id":
+                evidence.evidence_id
+                if evidence
+                else None,
+            "evidence_submitted_at":
+                evidence.uploaded_at
+                if evidence
+                else None,
+            "verification_decision":
+                verification.decision
+                if verification
+                else None,
+            "verification_created_at":
+                verification.created_at
+                if verification
+                else None,
+            "status_label":
+                status_label,
+            "status_class":
+                status_class,
+            "status_time":
+                status_time
+        })
+
+    trail.sort(
+        key=lambda item: (
+            item["status_time"] or
+            datetime.min
+        ),
+        reverse=True
+    )
+
+    evidence_count = len(
+        own_evidence
+    )
+
+    impact_percent = (
+        round(
+            (
+                verified_count /
+                evidence_count
+            ) * 100
+        )
+        if evidence_count
+        else 0
+    )
+
+    return {
+        "user": {
+            "user_id":
+                current_user.user_id,
+            "public_user_id":
+                current_user.public_user_id
+        },
+        "stats": {
+            "joined":
+                len(participations),
+            "evidence":
+                evidence_count,
+            "verified":
+                verified_count,
+            "impact_percent":
+                impact_percent
+        },
+        "trail":
+            trail
+    }
+
+
+@app.get("/citykeepers/leaderboard")
+def get_citykeeper_leaderboard(
+    period: str = "month",
+    db: Session = Depends(get_db)
+):
+    period = period.lower().strip()
+
+    if period not in {
+        "month",
+        "all"
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Period must be 'month' or 'all'."
+            )
+        )
+
+    month_start = None
+
+    if period == "month":
+        now = datetime.utcnow()
+        month_start = datetime(
+            now.year,
+            now.month,
+            1
+        )
+
+    verifications = db.query(
+        models.CitykeeperVerification
+    ).filter(
+        models.CitykeeperVerification.decision ==
+        "verified"
+    ).all()
+
+    verified_counts = {}
+
+    for verification in verifications:
+        if (
+            month_start is not None and
+            verification.created_at and
+            verification.created_at <
+            month_start
+        ):
+            continue
+
+        evidence = db.query(
+            models.Evidence
+        ).filter(
+            models.Evidence.evidence_id ==
+            verification.evidence_id,
+            models.Evidence.evidence_type ==
+            "citykeeper_after"
+        ).first()
+
+        if (
+            not evidence or
+            not evidence.uploaded_by_user
+        ):
+            continue
+
+        verified_counts[
+            evidence.uploaded_by_user
+        ] = (
+            verified_counts.get(
+                evidence.uploaded_by_user,
+                0
+            ) + 1
+        )
+
+    entries = []
+
+    for user_id, verified in (
+        verified_counts.items()
+    ):
+        user = db.query(
+            models.User
+        ).filter(
+            models.User.user_id ==
+            user_id
+        ).first()
+
+        if not user:
+            continue
+
+        evidence_count = db.query(
+            models.Evidence
+        ).filter(
+            models.Evidence.evidence_type ==
+            "citykeeper_after",
+            models.Evidence.uploaded_by_user ==
+            user_id
+        ).count()
+
+        joined_count = db.query(
+            models.CitykeeperParticipation
+        ).filter(
+            models.CitykeeperParticipation.user_id ==
+            user_id,
+            models.CitykeeperParticipation.status ==
+            "Joined"
+        ).count()
+
+        entries.append({
+            "public_user_id":
+                (
+                    user.public_user_id or
+                    f"CK-{user.user_id:06d}"
+                ),
+            "verified":
+                verified,
+            "evidence":
+                evidence_count,
+            "joined":
+                joined_count
+        })
+
+    entries.sort(
+        key=lambda item: (
+            -item["verified"],
+            -item["evidence"],
+            -item["joined"],
+            item["public_user_id"]
+        )
+    )
+
+    return {
+        "period": period,
+        "entries": entries[:10]
+    }
+

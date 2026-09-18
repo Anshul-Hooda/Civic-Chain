@@ -20,7 +20,22 @@ const API_BASE_URL = isLocalFrontend
     : "";
 
 const VERIFIED_STATUS = "verified";
-const AUTHORITY_RESOLVED_STATUS = "resolved";
+const AUTHORITY_RESOLVED_STATUS = "awaiting verification";
+
+// CITYKEEPERS auth + backend state.
+let activeCitykeeperMissionId = null;
+let citykeeperHallPeriod = "month";
+
+let citykeeperAuthEnabled = false;
+let citykeeperAuthInitialized = false;
+let citykeeperCurrentUser = null;
+let citykeeperParticipations = [];
+let citykeeperProfileData = null;
+let citykeeperLeaderboardData = [];
+const citykeeperMissionStatsCache = new Map();
+
+// YOUR FILES is backend-owned and scoped to the authenticated Clerk user.
+let myComplaints = [];
 
 const CITY_CENTERS = {
     delhi: [28.6139, 77.2090],
@@ -48,6 +63,15 @@ let selectedLongitude = null;
 let toastTimer = null;
 let refreshTimer = null;
 
+let currentAuthorityComplaintId = null;
+let currentCaseComplaintId = null;
+let currentAuthorityProofImage = null;
+let currentAuthorityCoordinates = null;
+let activeAuthorityCategory = "all";
+let activeAuthorityStatus = "all";
+let authoritySearchTerm = "";
+let authoritySortOrder = "oldest";
+
 const referenceData = {
     cities: [],
     categories: [],
@@ -72,6 +96,71 @@ function escapeHTML(value = "") {
 }
 
 
+
+function publicFileURL(value = "") {
+    const path = String(value || "").trim();
+    if (!path) return "";
+    if (/^https?:\/\//i.test(path) || path.startsWith("data:")) {
+        return path;
+    }
+    return `${API_BASE_URL}${path}`;
+}
+
+function complaintById(complaintId) {
+    const id = Number(complaintId);
+    return allComplaints.find(
+        item => Number(item?.complaint_id) === id
+    ) || null;
+}
+
+function getResolutionAttempts(complaintId) {
+    const complaint = complaintById(complaintId);
+    return Array.isArray(complaint?.resolution_attempts)
+        ? complaint.resolution_attempts
+        : [];
+}
+
+function getAuthorityProof(complaintId) {
+    const attempts = getResolutionAttempts(complaintId);
+    return attempts.length
+        ? attempts[attempts.length - 1]?.proof || null
+        : null;
+}
+
+function getCitizenReview(complaintId) {
+    const attempts = getResolutionAttempts(complaintId);
+    return attempts.length
+        ? attempts[attempts.length - 1]?.review || null
+        : null;
+}
+
+function upsertComplaintRecord(record) {
+    if (!record || record.complaint_id === undefined) return null;
+
+    const id = Number(record.complaint_id);
+    const index = allComplaints.findIndex(
+        item => Number(item.complaint_id) === id
+    );
+
+    if (index >= 0) {
+        allComplaints[index] = record;
+    }
+    else {
+        allComplaints.push(record);
+    }
+
+    if (Array.isArray(record.evidence)) {
+        backendEvidenceCache.set(id, record.evidence);
+    }
+
+    return record;
+}
+
+function isCitizenReopened(complaint) {
+    const review = getCitizenReview(complaint?.complaint_id);
+    return review?.action === "reopened" || review?.action === "questioned";
+}
+
 function normalizeStatus(complaint) {
     return String(
         complaint?.status || "Submitted"
@@ -82,6 +171,16 @@ function normalizeStatus(complaint) {
 
 
 function isVerified(complaint) {
+    const review = getCitizenReview(complaint?.complaint_id);
+
+    if (review?.action === "verified") {
+        return true;
+    }
+
+    if (review?.action === "reopened" || review?.action === "questioned") {
+        return false;
+    }
+
     return (
         normalizeStatus(complaint) ===
         VERIFIED_STATUS
@@ -90,6 +189,14 @@ function isVerified(complaint) {
 
 
 function isAuthorityResolved(complaint) {
+    if (isCitizenReopened(complaint)) {
+        return false;
+    }
+
+    if (getAuthorityProof(complaint?.complaint_id)) {
+        return true;
+    }
+
     return (
         normalizeStatus(complaint) ===
         AUTHORITY_RESOLVED_STATUS
@@ -97,12 +204,15 @@ function isAuthorityResolved(complaint) {
 }
 
 
+function isAcknowledged(complaint) {
+    return normalizeStatus(complaint) === "acknowledged";
+}
+
 function isInProgress(complaint) {
     return [
         "in progress",
         "in_progress",
         "assigned",
-        "acknowledged",
         "working"
     ].includes(
         normalizeStatus(complaint)
@@ -233,6 +343,7 @@ function getBlockchainHash(complaint) {
     const complaintId = Number(complaint?.complaint_id);
 
     return (
+        complaint?.blockchain_hash ||
         complaint?.blockchain_tx_hash ||
         complaint?.blockchain_hash ||
         complaint?.tx_hash ||
@@ -311,8 +422,16 @@ function homeStatusLabel(complaint) {
         return "CITIZEN VERIFIED";
     }
 
+    if (isCitizenReopened(complaint)) {
+        return "REOPENED · ACTION REQUIRED";
+    }
+
     if (isAuthorityResolved(complaint)) {
         return "VERIFY FIX";
+    }
+
+    if (isAcknowledged(complaint)) {
+        return "ACKNOWLEDGED";
     }
 
     if (isInProgress(complaint)) {
@@ -367,13 +486,55 @@ function showToast(message) {
 }
 
 
+async function getCitykeeperSessionToken() {
+    try {
+        const session =
+            window.Clerk?.session;
+
+        if (!session) {
+            return null;
+        }
+
+        return await session.getToken();
+    }
+    catch (error) {
+        console.warn(
+            "Could not get Clerk session token:",
+            error
+        );
+
+        return null;
+    }
+}
+
+
 async function fetchJSON(
     path,
     options = {}
 ) {
+    const requestOptions = {
+        ...options
+    };
+
+    const headers = new Headers(
+        options.headers || {}
+    );
+
+    const token =
+        await getCitykeeperSessionToken();
+
+    if (token) {
+        headers.set(
+            "Authorization",
+            `Bearer ${token}`
+        );
+    }
+
+    requestOptions.headers = headers;
+
     const response = await fetch(
         `${API_BASE_URL}${path}`,
-        options
+        requestOptions
     );
 
     let data = null;
@@ -386,14 +547,327 @@ async function fetchJSON(
     }
 
     if (!response.ok) {
-        throw new Error(
+        const error = new Error(
             data?.detail ||
             data?.message ||
             `Request failed (${response.status})`
         );
+
+        error.status = response.status;
+        error.data = data;
+
+        throw error;
     }
 
     return data;
+}
+
+
+function loadExternalScript(
+    src,
+    attributes = {}
+) {
+    return new Promise(
+        (resolve, reject) => {
+            const existing =
+                document.querySelector(
+                    `script[src="${src}"]`
+                );
+
+            if (existing) {
+                if (
+                    existing.dataset.cityfileLoaded ===
+                    "true"
+                ) {
+                    resolve();
+                    return;
+                }
+
+                existing.addEventListener(
+                    "load",
+                    () => resolve(),
+                    { once: true }
+                );
+
+                existing.addEventListener(
+                    "error",
+                    () => reject(
+                        new Error(
+                            `Could not load ${src}`
+                        )
+                    ),
+                    { once: true }
+                );
+
+                return;
+            }
+
+            const script =
+                document.createElement(
+                    "script"
+                );
+
+            script.src = src;
+            script.async = true;
+            script.crossOrigin =
+                "anonymous";
+
+            Object.entries(
+                attributes
+            ).forEach(
+                ([key, value]) => {
+                    script.setAttribute(
+                        key,
+                        value
+                    );
+                }
+            );
+
+            script.addEventListener(
+                "load",
+                () => {
+                    script.dataset.cityfileLoaded =
+                        "true";
+                    resolve();
+                },
+                { once: true }
+            );
+
+            script.addEventListener(
+                "error",
+                () => reject(
+                    new Error(
+                        `Could not load ${src}`
+                    )
+                ),
+                { once: true }
+            );
+
+            document.head.appendChild(
+                script
+            );
+        }
+    );
+}
+
+
+function clerkFrontendDomain(
+    publishableKey
+) {
+    try {
+        return atob(
+            publishableKey.split("_")[2]
+        ).slice(0, -1);
+    }
+    catch {
+        return "";
+    }
+}
+
+
+function renderCitykeeperAuthButton() {
+    const button =
+        document.getElementById(
+            "citykeeperAuthButton"
+        );
+
+    if (!button) {
+        return;
+    }
+
+    if (!citykeeperAuthEnabled) {
+        button.innerHTML =
+            `AUTH NOT CONFIGURED <span>!</span>`;
+        return;
+    }
+
+    if (citykeeperCurrentUser) {
+        button.innerHTML =
+            `${escapeHTML(
+                citykeeperCurrentUser
+                    .public_user_id ||
+                "CITYKEEPER"
+            )} <span>↗</span>`;
+        return;
+    }
+
+    button.innerHTML =
+        `SIGN IN TO JOIN <span>→</span>`;
+}
+
+
+async function loadCitykeeperCurrentUser() {
+    if (
+        !citykeeperAuthEnabled ||
+        !window.Clerk?.user
+    ) {
+        citykeeperCurrentUser = null;
+        renderCitykeeperAuthButton();
+        return null;
+    }
+
+    try {
+        citykeeperCurrentUser =
+            await fetchJSON(
+                "/auth/me"
+            );
+    }
+    catch (error) {
+        console.warn(
+            "Could not load authenticated Citykeeper:",
+            error
+        );
+
+        citykeeperCurrentUser = null;
+    }
+
+    renderCitykeeperAuthButton();
+
+    return citykeeperCurrentUser;
+}
+
+
+async function refreshCitykeeperAuthData() {
+    await loadCitykeeperCurrentUser();
+
+    await Promise.all([
+        loadCitykeeperParticipations(),
+        loadCitykeeperProfile(),
+        loadCitykeeperMissionStats(),
+        loadCitykeeperLeaderboard(),
+        loadMyComplaints()
+    ]);
+
+    renderCitykeepers();
+    renderProfileFiles();
+    renderAuthorityDashboard();
+}
+
+
+async function initializeClerkAuth() {
+    if (citykeeperAuthInitialized) {
+        return;
+    }
+
+    citykeeperAuthInitialized = true;
+
+    let config = null;
+
+    try {
+        config = await fetchJSON(
+            "/config"
+        );
+    }
+    catch (error) {
+        console.warn(
+            "Could not load Clerk configuration:",
+            error
+        );
+
+        citykeeperAuthEnabled = false;
+        renderCitykeeperAuthButton();
+        return;
+    }
+
+    const publishableKey =
+        String(
+            config?.clerk_publishable_key ||
+            ""
+        ).trim();
+
+    citykeeperAuthEnabled =
+        Boolean(
+            config?.clerk_enabled &&
+            publishableKey
+        );
+
+    if (!citykeeperAuthEnabled) {
+        renderCitykeeperAuthButton();
+        return;
+    }
+
+    const frontendDomain =
+        clerkFrontendDomain(
+            publishableKey
+        );
+
+    if (!frontendDomain) {
+        citykeeperAuthEnabled = false;
+        renderCitykeeperAuthButton();
+        return;
+    }
+
+    try {
+        await loadExternalScript(
+            `https://${frontendDomain}/npm/@clerk/ui@1/dist/ui.browser.js`
+        );
+
+        await loadExternalScript(
+            `https://${frontendDomain}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`,
+            {
+                "data-clerk-publishable-key":
+                    publishableKey
+            }
+        );
+
+        if (!window.Clerk) {
+            throw new Error(
+                "ClerkJS did not initialize."
+            );
+        }
+
+        await window.Clerk.load({
+            ui: {
+                ClerkUI:
+                    window.__internal_ClerkUICtor
+            }
+        });
+
+        window.Clerk.addListener(
+            async () => {
+                await refreshCitykeeperAuthData();
+            },
+            {
+                skipInitialEmit: true
+            }
+        );
+
+        await loadCitykeeperCurrentUser();
+    }
+    catch (error) {
+        console.error(
+            "Clerk initialization error:",
+            error
+        );
+
+        citykeeperAuthEnabled = false;
+        citykeeperCurrentUser = null;
+        renderCitykeeperAuthButton();
+    }
+}
+
+
+async function openCitykeeperAuth() {
+    if (!citykeeperAuthEnabled) {
+        showToast(
+            "Clerk is not configured yet."
+        );
+        return;
+    }
+
+    if (!window.Clerk) {
+        showToast(
+            "Authentication is still loading."
+        );
+        return;
+    }
+
+    if (window.Clerk.user) {
+        await window.Clerk.openUserProfile();
+        return;
+    }
+
+    await window.Clerk.openSignIn();
 }
 
 
@@ -510,6 +984,41 @@ function showView(viewName) {
     if (viewName === "integrity") {
         renderIntegrityEvents();
     }
+
+    if (viewName === "authority") {
+        renderAuthorityDashboard();
+    }
+
+    if (viewName === "citykeepers") {
+        renderCitykeepers();
+    }
+}
+
+
+function openMapFor(filter = "all") {
+    const allowed = new Set([
+        "all",
+        "road",
+        "water",
+        "drainage",
+        "sanitation",
+        "streetlight",
+        "safety",
+        "other"
+    ]);
+
+    activeMapFilter = allowed.has(filter)
+        ? filter
+        : "all";
+
+    syncMapFilterButtons();
+    showView("map");
+
+    setTimeout(() => {
+        initializeCityMap();
+        cityMap?.invalidateSize();
+        renderMapMarkers();
+    }, 100);
 }
 
 
@@ -610,6 +1119,62 @@ function fillSelect(
 }
 
 
+function filterDepartmentsForSelectedCity() {
+    const citySelect = document.getElementById("city");
+    const departmentSelect = document.getElementById("department");
+
+    if (!citySelect || !departmentSelect) {
+        return;
+    }
+
+    const selectedCityId = Number(citySelect.value);
+    const previousValue = departmentSelect.value;
+
+    const departments = Number.isFinite(selectedCityId)
+        ? referenceData.departments.filter(
+            item => Number(item.city_id) === selectedCityId
+        )
+        : referenceData.departments;
+
+    fillSelect(
+        "department",
+        departments,
+        "department_id",
+        "department_name",
+        selectedCityId
+            ? (departments.length
+                ? "Select department"
+                : "No departments available for this city")
+            : "Select city first"
+    );
+
+    if (
+        previousValue &&
+        Array.from(departmentSelect.options).some(
+            option => option.value === previousValue
+        )
+    ) {
+        departmentSelect.value = previousValue;
+    }
+
+    departmentSelect.disabled =
+        !Number.isFinite(selectedCityId) ||
+        departments.length === 0;
+}
+
+
+function initializeCityDepartmentLink() {
+    const citySelect = document.getElementById("city");
+
+    citySelect?.addEventListener(
+        "change",
+        filterDepartmentsForSelectedCity
+    );
+
+    filterDepartmentsForSelectedCity();
+}
+
+
 async function loadReferenceData() {
     try {
         const [
@@ -696,13 +1261,7 @@ async function loadReferenceData() {
             "Select category"
         );
 
-        fillSelect(
-            "department",
-            referenceData.departments,
-            "department_id",
-            "department_name",
-            "Select department"
-        );
+        filterDepartmentsForSelectedCity();
     }
     catch (error) {
         console.error(
@@ -717,13 +1276,4776 @@ async function loadReferenceData() {
 }
 
 
+
+/* ============================================================
+   AUTHORITY OPERATIONS DESK + CITIZEN RESOLUTION REVIEW
+   Backend-backed authority proof and citizen verification.
+   ============================================================ */
+
+const AUTHORITY_CATEGORY_META = {
+    all: { label: "ALL PROBLEMS", image: "assets/all.jpg" },
+    road: { label: "POTHOLES", image: "assets/pothole.jpg" },
+    sanitation: { label: "GARBAGE", image: "assets/garbage.jpg" },
+    water: { label: "WATER LEAKS", image: "assets/water.jpg" },
+    drainage: { label: "DRAINAGE", image: "assets/drainage.jpg" },
+    streetlight: { label: "STREETLIGHTS", image: "assets/streetlight.jpg" },
+    safety: { label: "SAFETY", image: "assets/safety.jpg" },
+    other: { label: "OTHER", image: "assets/other.jpg" }
+};
+
+function formatAuthorityCoordinate(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number.toFixed(6) : "NOT RECORDED";
+}
+
+function compressAuthorityImage(file, maxDimension = 1200, quality = 0.72) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Could not read the selected image."));
+        reader.onload = () => {
+            const image = new Image();
+            image.onerror = () => reject(new Error("The selected file is not a readable image."));
+            image.onload = () => {
+                const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+                const canvas = document.createElement("canvas");
+                canvas.width = Math.max(1, Math.round(image.width * scale));
+                canvas.height = Math.max(1, Math.round(image.height * scale));
+                const context = canvas.getContext("2d");
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL("image/jpeg", quality));
+            };
+            image.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+function authorityCardStatus(complaint) {
+    if (isVerified(complaint)) return "CITIZEN VERIFIED";
+    if (isCitizenReopened(complaint)) return "RETURNED BY CITIZEN";
+    if (isAuthorityResolved(complaint)) return "AWAITING CITIZEN VERIFICATION";
+    if (isInProgress(complaint)) return "WORK IN PROGRESS";
+    if (isAcknowledged(complaint)) return "ACKNOWLEDGED · AWAITING WORK";
+    return "ACTION REQUIRED";
+}
+
+function authorityCardClass(complaint) {
+    if (isVerified(complaint)) return "is-verified";
+    if (isCitizenReopened(complaint)) return "is-reopened";
+    if (isAuthorityResolved(complaint)) return "is-review";
+    if (isInProgress(complaint)) return "is-progress";
+    return "is-waiting";
+}
+
+function authorityStatusMatches(complaint, filter) {
+    if (filter === "all") return true;
+    if (filter === "verified") return isVerified(complaint);
+    if (filter === "returned") return isCitizenReopened(complaint);
+    if (filter === "review") return !isVerified(complaint) && isAuthorityResolved(complaint);
+    if (filter === "progress") {
+        return !isVerified(complaint) && !isCitizenReopened(complaint) && !isAuthorityResolved(complaint) && isInProgress(complaint);
+    }
+    if (filter === "action") return !isVerified(complaint) && !isAuthorityResolved(complaint);
+    return true;
+}
+
+function authoritySearchMatches(complaint) {
+    const query = authoritySearchTerm.trim().toLowerCase();
+    if (!query) return true;
+
+    const searchable = [
+        formatComplaintId(complaint.complaint_id),
+        complaint.complaint_id,
+        getCategoryName(complaint),
+        getDepartmentName(complaint),
+        publicLocation(complaint),
+        complaint.description,
+        complaint.priority,
+        authorityCardStatus(complaint)
+    ].join(" ").toLowerCase();
+
+    return searchable.includes(query);
+}
+
+function authorityCategoryCounts(group) {
+    const records = group === "all"
+        ? allComplaints
+        : allComplaints.filter(complaint => issueGroup(complaint) === group);
+
+    const active = records.filter(complaint => !isVerified(complaint));
+    return {
+        active: active.length,
+        action: active.filter(complaint => !isAuthorityResolved(complaint)).length,
+        review: active.filter(complaint => isAuthorityResolved(complaint)).length,
+        verified: records.filter(isVerified).length
+    };
+}
+
+function renderAuthorityCategoryCards() {
+    const container = document.getElementById("authorityCategoryGrid");
+    if (!container) return;
+
+    const baseGroups = ["all", "road", "sanitation", "water", "drainage", "streetlight", "safety"];
+    const hasOther = allComplaints.some(complaint => issueGroup(complaint) === "other");
+    const groups = hasOther ? [...baseGroups, "other"] : baseGroups;
+
+    container.innerHTML = groups.map(group => {
+        const meta = AUTHORITY_CATEGORY_META[group];
+        const counts = authorityCategoryCounts(group);
+        const selected = activeAuthorityCategory === group;
+
+        return `
+            <button type="button"
+                class="authority-category-card ${selected ? "active" : ""}"
+                data-authority-category="${group}"
+                aria-pressed="${selected ? "true" : "false"}">
+                <span class="authority-category-media" style="background-image:linear-gradient(180deg,rgba(5,9,12,.05),rgba(5,9,12,.88)),url('${meta.image}')"></span>
+                <span class="authority-category-content">
+                    <small>${group === "all" ? "CITYWIDE" : "CATEGORY"}</small>
+                    <strong>${escapeHTML(meta.label)}</strong>
+                    <span class="authority-category-primary"><b>${counts.active}</b> ACTIVE</span>
+                    <span class="authority-category-stats">
+                        <i>${counts.action} need action</i>
+                        <i>${counts.review} awaiting review</i>
+                        <i>${counts.verified} verified</i>
+                    </span>
+                </span>
+            </button>`;
+    }).join("");
+}
+
+function authorityLifecycleMarkup(complaint) {
+    const proof = getAuthorityProof(complaint.complaint_id);
+    const review = getCitizenReview(complaint.complaint_id);
+    const actionDone = isInProgress(complaint) || Boolean(proof) || isVerified(complaint) || isCitizenReopened(complaint);
+    const proofDone = Boolean(proof);
+    const citizenDone = Boolean(review);
+
+    const citizenClass = review?.action === "verified"
+        ? "done"
+        : (review?.action === "reopened" || review?.action === "questioned")
+            ? "failed"
+            : proofDone ? "current" : "";
+
+    return `
+        <div class="authority-lifecycle" aria-label="Complaint lifecycle">
+            <span class="done"><b>01</b><i>REPORT</i></span>
+            <span class="${actionDone ? "done" : "current"}"><b>02</b><i>ACTION</i></span>
+            <span class="${proofDone ? "done" : ""}"><b>03</b><i>PROOF</i></span>
+            <span class="${citizenClass}"><b>04</b><i>CITIZEN</i></span>
+        </div>`;
+}
+
+function renderAuthorityLongestWaiting() {
+    const section = document.getElementById("authorityLongestWaitingSection");
+    const container = document.getElementById("authorityLongestWaiting");
+    if (!section || !container) return;
+
+    const records = allComplaints
+        .filter(complaint => !isVerified(complaint) && !isAuthorityResolved(complaint))
+        .filter(complaint => activeAuthorityCategory === "all" || issueGroup(complaint) === activeAuthorityCategory)
+        .sort((a, b) => complaintAgeMs(b) - complaintAgeMs(a));
+
+    const complaint = records[0];
+    if (!complaint) {
+        section.hidden = true;
+        container.innerHTML = "";
+        return;
+    }
+
+    section.hidden = false;
+    const id = Number(complaint.complaint_id);
+    const returned = isCitizenReopened(complaint);
+
+    container.innerHTML = `
+        <div class="authority-longest-age">
+            <small>${returned ? "RETURNED · STILL OPEN" : "OPEN FOR"}</small>
+            <strong>${escapeHTML(formatDuration(complaintAgeMs(complaint)))}</strong>
+        </div>
+        <div class="authority-longest-copy">
+            <span>${escapeHTML(formatComplaintId(id))}</span>
+            <strong>${escapeHTML(getCategoryName(complaint))}</strong>
+            <p>${escapeHTML(publicLocation(complaint))}</p>
+        </div>
+        <button type="button" onclick="window.openAuthorityAction(${id})">OPEN WORK FILE →</button>`;
+}
+
+function renderAuthorityDashboard() {
+    const grid = document.getElementById("authorityComplaintGrid");
+
+    const active = allComplaints.filter(complaint => !isVerified(complaint));
+    const waiting = active.filter(complaint => !isAuthorityResolved(complaint));
+    const review = active.filter(complaint => isAuthorityResolved(complaint));
+    const returned = active.filter(isCitizenReopened);
+    const verified = allComplaints.filter(isVerified);
+
+    const counters = {
+        authorityActiveCount: active.length,
+        authorityWaitingCount: waiting.length,
+        authorityReviewCount: review.length,
+        authorityReturnedCount: returned.length,
+        authorityVerifiedCount: verified.length
+    };
+
+    Object.entries(counters).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = Number(value).toLocaleString("en-IN");
+    });
+
+    renderAuthorityCategoryCards();
+    renderAuthorityLongestWaiting();
+
+    if (!grid) return;
+
+    const searchInput = document.getElementById("authoritySearch");
+    if (searchInput && searchInput.value !== authoritySearchTerm) searchInput.value = authoritySearchTerm;
+
+    const sortSelect = document.getElementById("authoritySort");
+    if (sortSelect && sortSelect.value !== authoritySortOrder) sortSelect.value = authoritySortOrder;
+
+    document.querySelectorAll("[data-authority-status]").forEach(button => {
+        button.classList.toggle("active", button.dataset.authorityStatus === activeAuthorityStatus);
+    });
+
+    if (!allComplaints.length) {
+        grid.innerHTML = `<div class="authority-empty-state">No civic complaints are currently available from the backend.</div>`;
+        const count = document.getElementById("authorityQueueCount");
+        if (count) count.textContent = "0 FILES";
+        return;
+    }
+
+    let records = allComplaints
+        .filter(complaint => activeAuthorityCategory === "all" || issueGroup(complaint) === activeAuthorityCategory)
+        .filter(complaint => authorityStatusMatches(complaint, activeAuthorityStatus))
+        .filter(authoritySearchMatches);
+
+    records = records.sort((a, b) => {
+        const aTime = Date.parse(a.created_at || "") || 0;
+        const bTime = Date.parse(b.created_at || "") || 0;
+        return authoritySortOrder === "newest" ? bTime - aTime : aTime - bTime;
+    });
+
+    const count = document.getElementById("authorityQueueCount");
+    if (count) count.textContent = `${records.length.toLocaleString("en-IN")} ${records.length === 1 ? "FILE" : "FILES"}`;
+
+    if (!records.length) {
+        grid.innerHTML = `<div class="authority-empty-state">No records match the selected category, status and search.</div>`;
+        return;
+    }
+
+    grid.innerHTML = records.map(complaint => {
+        const id = Number(complaint.complaint_id);
+        const proof = getAuthorityProof(id);
+        const canRecordFix = !isVerified(complaint) && !isAuthorityResolved(complaint);
+        const attempts = getResolutionAttempts(id);
+        const reopened = isCitizenReopened(complaint);
+        const status = normalizeStatus(complaint);
+        const canAcknowledge = ["submitted", "open", "disputed"].includes(status);
+        const canStartWork = ["submitted", "open", "acknowledged", "disputed"].includes(status);
+
+        return `
+            <article class="authority-record-card ${authorityCardClass(complaint)}">
+                <div class="authority-record-topline">
+                    <span class="authority-record-id">${escapeHTML(formatComplaintId(id))}</span>
+                    <span class="authority-record-age">OPEN ${escapeHTML(formatDuration(complaintAgeMs(complaint)))}</span>
+                </div>
+
+                <div class="authority-record-main">
+                    <div class="authority-record-copy">
+                        <small>${escapeHTML(AUTHORITY_CATEGORY_META[issueGroup(complaint)]?.label || getCategoryName(complaint))}</small>
+                        <h4>${escapeHTML(getCategoryName(complaint))}</h4>
+                        <p class="authority-record-location">${escapeHTML(publicLocation(complaint))}</p>
+                        <p class="authority-record-description">${escapeHTML(complaint.description || "No description recorded.")}</p>
+                        <span class="authority-responsible-label">RESPONSIBLE · ${escapeHTML(getDepartmentName(complaint))}</span>
+                        <span class="authority-responsible-label">PRIORITY · ${escapeHTML(complaint.priority || "Medium")} · DEADLINE · ${escapeHTML(complaint.deadline ? formatDate(complaint.deadline) : "NOT SET")}</span>
+                    </div>
+
+                    <div class="authority-record-state">
+                        <small>CURRENT STATE</small>
+                        <strong>${escapeHTML(authorityCardStatus(complaint))}</strong>
+                        ${attempts.length ? `<span>${attempts.length} resolution ${attempts.length === 1 ? "attempt" : "attempts"} recorded</span>` : ""}
+                    </div>
+                </div>
+
+                ${authorityLifecycleMarkup(complaint)}
+
+                <div class="authority-record-actions">
+                    ${canAcknowledge ? `<button type="button" class="secondary" onclick="window.updateAuthorityStatus(${id}, 'Acknowledged')">ACKNOWLEDGE</button>` : ""}
+                    ${canStartWork ? `<button type="button" class="secondary" onclick="window.updateAuthorityStatus(${id}, 'In Progress')">START / CONTINUE WORK</button>` : ""}
+                    ${!isVerified(complaint) ? `<button type="button" class="secondary" onclick="window.updateAuthorityDeadline(${id})">${complaint.deadline ? "CHANGE DEADLINE" : "SET DEADLINE"}</button>` : ""}
+                    ${canRecordFix ? `<button type="button" onclick="window.openAuthorityAction(${id})">${reopened && proof ? "RECORD NEW ATTEMPT" : "OPEN WORK FILE"} →</button>` : ""}
+                    ${proof && !isVerified(complaint) && !reopened ? `<button type="button" class="waiting" onclick="window.openCase(${id})">AWAITING CITIZEN</button>` : ""}
+                    <button type="button" class="secondary" onclick="window.openCase(${id})">${proof ? "VIEW PUBLIC PROOF" : "INSPECT RECORD"}</button>
+                </div>
+            </article>`;
+    }).join("");
+}
+
+function resetAuthorityActionState() {
+    currentAuthorityComplaintId = null;
+    currentAuthorityProofImage = null;
+    currentAuthorityCoordinates = null;
+}
+
+function updateAuthorityGeoDisplay() {
+    const status = document.getElementById("authorityGeoStatus");
+    const coordinates = document.getElementById("authorityGeoCoordinates");
+    if (!status || !coordinates) return;
+
+    if (!currentAuthorityCoordinates) {
+        status.textContent = "GEOTAG REQUIRED";
+        coordinates.textContent = "Capture the current location while submitting the solved proof.";
+        return;
+    }
+
+    status.textContent = "GEOTAG CAPTURED";
+    coordinates.textContent = `${formatAuthorityCoordinate(currentAuthorityCoordinates.latitude)}, ${formatAuthorityCoordinate(currentAuthorityCoordinates.longitude)} · accuracy ±${Math.round(Number(currentAuthorityCoordinates.accuracy) || 0)} m`;
+}
+const backendEvidenceCache = new Map();
+const citykeeperVerificationCache = new Map();
+async function loadBackendEvidence(complaintId) {
+    try {
+        const evidenceList = await fetchJSON(
+            `/complaints/${complaintId}/evidence`
+        );
+
+        backendEvidenceCache.set(
+            Number(complaintId),
+            Array.isArray(evidenceList)
+                ? evidenceList
+                : []
+        );
+    }
+    catch (error) {
+        console.warn(
+            `Could not load evidence for complaint ${complaintId}:`,
+            error
+        );
+
+        backendEvidenceCache.set(
+            Number(complaintId),
+            []
+        );
+    }
+}
+
+async function loadCitykeeperVerification(complaintId) {
+    try {
+        const verification = await fetchJSON(
+            `/citykeepers/${complaintId}/verification`
+        );
+
+        citykeeperVerificationCache.set(
+            Number(complaintId),
+            verification || null
+        );
+    }
+    catch (error) {
+        console.warn(
+            `Could not load Citykeeper verification for complaint ${complaintId}:`,
+            error
+        );
+
+        citykeeperVerificationCache.set(
+            Number(complaintId),
+            null
+        );
+    }
+}
+
+async function loadCitykeeperParticipations() {
+    citykeeperParticipations = [];
+
+    if (!citykeeperCurrentUser) {
+        return [];
+    }
+
+    try {
+        const participations =
+            await fetchJSON(
+                "/citykeepers/participations"
+            );
+
+        citykeeperParticipations =
+            Array.isArray(participations)
+                ? participations
+                : [];
+
+        return citykeeperParticipations;
+    }
+    catch (error) {
+        console.warn(
+            "Could not load Citykeeper participations:",
+            error
+        );
+
+        citykeeperParticipations = [];
+
+        return [];
+    }
+}
+
+
+async function loadCitykeeperProfile() {
+    if (!citykeeperCurrentUser) {
+        citykeeperProfileData = null;
+        return null;
+    }
+
+    try {
+        citykeeperProfileData =
+            await fetchJSON(
+                "/citykeepers/me"
+            );
+
+        return citykeeperProfileData;
+    }
+    catch (error) {
+        console.warn(
+            "Could not load Citykeeper profile:",
+            error
+        );
+
+        citykeeperProfileData = null;
+
+        return null;
+    }
+}
+
+
+async function loadCitykeeperLeaderboard() {
+    try {
+        const result =
+            await fetchJSON(
+                `/citykeepers/leaderboard?period=${encodeURIComponent(
+                    citykeeperHallPeriod
+                )}`
+            );
+
+        citykeeperLeaderboardData =
+            Array.isArray(result?.entries)
+                ? result.entries
+                : [];
+
+        return citykeeperLeaderboardData;
+    }
+    catch (error) {
+        console.warn(
+            "Could not load Citykeeper leaderboard:",
+            error
+        );
+
+        citykeeperLeaderboardData = [];
+
+        return [];
+    }
+}
+
+
+async function loadCitykeeperMissionStats() {
+    try {
+        const rows =
+            await fetchJSON(
+                "/citykeepers/mission-stats"
+            );
+
+        citykeeperMissionStatsCache.clear();
+
+        for (
+            const row of (
+                Array.isArray(rows)
+                    ? rows
+                    : []
+            )
+        ) {
+            citykeeperMissionStatsCache.set(
+                Number(row.complaint_id),
+                row
+            );
+        }
+
+        return rows;
+    }
+    catch (error) {
+        console.warn(
+            "Could not load Citykeeper mission stats:",
+            error
+        );
+
+        citykeeperMissionStatsCache.clear();
+
+        return [];
+    }
+}
+
+function citizenEvidenceMarkup(complaint) {
+    const complaintId =
+        Number(complaint.complaint_id);
+
+    const evidenceList =
+        backendEvidenceCache.get(
+            complaintId
+        ) || [];
+
+    const citizenEvidence =
+        evidenceList.find(
+            evidence =>
+                evidence.evidence_type ===
+                "citizen_report"
+        );
+
+    if (citizenEvidence?.file_url) {
+        const imageURL =
+            publicFileURL(citizenEvidence.file_url);
+
+        return `
+            <div class="authority-before-media">
+                <img
+                    src="${escapeHTML(imageURL)}"
+                    alt="Citizen submitted evidence from the original complaint"
+                >
+                <span>ORIGINAL CITIZEN EVIDENCE</span>
+            </div>`;
+    }
+
+    return `
+        <div class="authority-evidence-unavailable">
+            <small>ORIGINAL CITIZEN EVIDENCE</small>
+            <strong>IMAGE NOT AVAILABLE</strong>
+            <p>No original citizen photograph is attached to this record.</p>
+        </div>`;
+}
+
+function openAuthorityAction(complaintId) {
+    const id = Number(complaintId);
+    const complaint = allComplaints.find(item => Number(item.complaint_id) === id);
+    const panel = document.getElementById("authorityActionPanel");
+    const selected = document.getElementById("authoritySelectedRecord");
+    const originalRecord = document.getElementById("authorityOriginalRecord");
+    const idInput = document.getElementById("authorityComplaintId");
+
+    if (!complaint || !panel || !selected || !originalRecord || !idInput) return;
+
+    if (!citykeeperCurrentUser) {
+        showToast("Sign in with an authorized authority account to record action.");
+        openCitykeeperAuth();
+        return;
+    }
+
+    if (!citykeeperCurrentUser.is_authority) {
+        showToast("This signed-in account is not authorized for authority actions.");
+        return;
+    }
+
+    if (isVerified(complaint)) {
+        showToast("This complaint is already citizen verified.");
+        return;
+    }
+
+    currentAuthorityComplaintId = id;
+    currentAuthorityProofImage = null;
+    currentAuthorityCoordinates = null;
+
+    document.getElementById("authorityResolutionForm")?.reset();
+    idInput.value = String(id);
+
+    const attempts = getResolutionAttempts(id);
+    const review = getCitizenReview(id);
+
+    selected.innerHTML = `
+        <div><small>RECORD</small><strong>${escapeHTML(formatComplaintId(id))}</strong></div>
+        <div><small>PROBLEM</small><strong>${escapeHTML(getCategoryName(complaint))}</strong></div>
+        <div><small>LOCATION</small><strong>${escapeHTML(publicLocation(complaint))}</strong></div>
+        <div><small>OPEN</small><strong>${escapeHTML(formatDuration(complaintAgeMs(complaint)))}</strong></div>`;
+
+    originalRecord.innerHTML = `
+        <div class="authority-original-heading">
+            <small>ORIGINAL RECORD / BEFORE</small>
+            <strong>Citizen report</strong>
+        </div>
+        ${citizenEvidenceMarkup(complaint)}
+        <div class="authority-original-copy">
+            <span>${escapeHTML(formatDate(complaint.created_at))}</span>
+            <p>${escapeHTML(complaint.description || "No description recorded.")}</p>
+            <strong>${escapeHTML(publicLocation(complaint))}</strong>
+        </div>
+        ${attempts.length ? `
+            <div class="authority-previous-attempts-note ${isCitizenReopened(complaint) ? "returned" : ""}">
+                <small>PREVIOUS HISTORY</small>
+                <strong>${attempts.length} RESOLUTION ${attempts.length === 1 ? "ATTEMPT" : "ATTEMPTS"} ALREADY ON RECORD</strong>
+                <p>${review?.action === "reopened" || review?.action === "questioned" ? "The latest attempt was returned by a citizen. It will not be erased when you submit another attempt." : "Previous attempts remain inspectable in the public Problem File."}</p>
+            </div>` : ""}`;
+
+    const attemptHeading = document.getElementById("authorityAttemptHeading");
+    if (attemptHeading) attemptHeading.textContent = `RESOLUTION ATTEMPT ${String(attempts.length + 1).padStart(2, "0")}`;
+
+    const preview = document.getElementById("authorityProofPreview");
+    const previewImage = document.getElementById("authorityProofPreviewImage");
+    if (preview) preview.hidden = true;
+    if (previewImage) previewImage.removeAttribute("src");
+
+    const message = document.getElementById("authorityFormMessage");
+    if (message) message.textContent = "";
+
+    updateAuthorityGeoDisplay();
+    panel.hidden = false;
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeAuthorityAction() {
+    const panel = document.getElementById("authorityActionPanel");
+    if (panel) panel.hidden = true;
+    resetAuthorityActionState();
+}
+
+async function handleAuthorityProofImage(event) {
+    const file = event.target.files?.[0] || null;
+    const message = document.getElementById("authorityFormMessage");
+
+    if (!file) {
+        currentAuthorityProofImage = null;
+        return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+        event.target.value = "";
+        currentAuthorityProofImage = null;
+        if (message) message.textContent = "Select an image file for the solved-problem proof.";
+        return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+        event.target.value = "";
+        currentAuthorityProofImage = null;
+        if (message) message.textContent = "Image is too large. Maximum size is 10 MB.";
+        return;
+    }
+
+    currentAuthorityProofImage = file;
+
+    const preview = document.getElementById("authorityProofPreview");
+    const image = document.getElementById("authorityProofPreviewImage");
+
+    if (image) image.src = URL.createObjectURL(file);
+    if (preview) preview.hidden = false;
+    if (message) message.textContent = "After-photo ready for backend upload.";
+}
+
+function captureAuthorityGeotag() {
+    const message = document.getElementById("authorityFormMessage");
+    const status = document.getElementById("authorityGeoStatus");
+
+    if (!navigator.geolocation) {
+        if (message) message.textContent = "This browser does not provide geolocation.";
+        return;
+    }
+
+    if (status) status.textContent = "CAPTURING LOCATION…";
+
+    navigator.geolocation.getCurrentPosition(
+        position => {
+            currentAuthorityCoordinates = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                capturedAt: new Date().toISOString()
+            };
+            updateAuthorityGeoDisplay();
+            if (message) message.textContent = "Current geotag captured.";
+        },
+        error => {
+            currentAuthorityCoordinates = null;
+            updateAuthorityGeoDisplay();
+            if (message) message.textContent = error.message || "Could not capture current location.";
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+}
+
+function reportedCoordinates(complaint) {
+    const text = String(complaint?.location || "");
+    const match = text.match(/Latitude:\s*(-?\d+(?:\.\d+)?)\s*,\s*Longitude:\s*(-?\d+(?:\.\d+)?)/i);
+    if (!match) return null;
+
+    const latitude = Number(match[1]);
+    const longitude = Number(match[2]);
+    return Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? { latitude, longitude }
+        : null;
+}
+
+function coordinateDistanceMeters(a, b) {
+    if (!a || !b) return null;
+    const toRad = degrees => degrees * Math.PI / 180;
+    const earthRadius = 6371000;
+    const lat1 = toRad(Number(a.latitude));
+    const lat2 = toRad(Number(b.latitude));
+    const deltaLat = toRad(Number(b.latitude) - Number(a.latitude));
+    const deltaLon = toRad(Number(b.longitude) - Number(a.longitude));
+
+    const h = Math.sin(deltaLat / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+
+    return 2 * earthRadius * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function authorityLocationCheck(complaint, proof) {
+    const reported = reportedCoordinates(complaint);
+    if (!reported) {
+        return {
+            className: "unknown",
+            label: "REPORT PIN NOT AVAILABLE",
+            detail: "CITYFILE cannot compare the two locations because this complaint has no stored report coordinates."
+        };
+    }
+
+    const distance = coordinateDistanceMeters(reported, {
+        latitude: Number(proof.latitude),
+        longitude: Number(proof.longitude)
+    });
+
+    if (!Number.isFinite(distance)) {
+        return { className: "unknown", label: "LOCATION CHECK UNAVAILABLE", detail: "Location comparison could not be calculated." };
+    }
+
+    if (distance <= 250) {
+        return {
+            className: "consistent",
+            label: "NEAR REPORTED LOCATION",
+            detail: `Resolution geotag is about ${Math.round(distance)} m from the original report pin. This supports location consistency; it does not prove the repair itself.`
+        };
+    }
+
+    return {
+        className: "warning",
+        label: "LOCATION DIFFERS · REVIEW",
+        detail: `Resolution geotag is about ${Math.round(distance)} m from the original report pin. The evidence should be checked before verification.`
+    };
+}
+
+async function submitAuthorityResolution(event) {
+    event.preventDefault();
+
+    const id = Number(
+        document.getElementById("authorityComplaintId")?.value ||
+        currentAuthorityComplaintId
+    );
+    const authority = document.getElementById("authorityOfficerName")?.value.trim() || "";
+    const note = document.getElementById("authorityActionNote")?.value.trim() || "";
+    const message = document.getElementById("authorityFormMessage");
+    const submitButton = event.currentTarget?.querySelector('[type="submit"]');
+
+    if (!citykeeperCurrentUser) {
+        if (message) message.textContent = "Sign in with an authorized authority account first.";
+        await openCitykeeperAuth();
+        return;
+    }
+
+    if (!citykeeperCurrentUser.is_authority) {
+        if (message) message.textContent = "This account is not authorized for authority actions.";
+        return;
+    }
+
+    if (!Number.isFinite(id) || !authority || !note) {
+        if (message) message.textContent = "Complete the authority and work-details fields.";
+        return;
+    }
+    if (!(currentAuthorityProofImage instanceof File)) {
+        if (message) message.textContent = "A solved-problem photo is required.";
+        return;
+    }
+    if (!currentAuthorityCoordinates) {
+        if (message) message.textContent = "Capture the current geotag before submitting.";
+        return;
+    }
+
+    if (submitButton) submitButton.disabled = true;
+
+    try {
+        const formData = new FormData();
+        formData.append("file", currentAuthorityProofImage);
+        formData.append("authority_label", authority);
+        formData.append("note", note);
+        formData.append("latitude", String(currentAuthorityCoordinates.latitude));
+        formData.append("longitude", String(currentAuthorityCoordinates.longitude));
+        formData.append("accuracy_m", String(currentAuthorityCoordinates.accuracy || ""));
+        formData.append("captured_at", currentAuthorityCoordinates.capturedAt || new Date().toISOString());
+
+        const record = await fetchJSON(
+            `/authority/complaints/${id}/resolution`,
+            { method: "POST", body: formData }
+        );
+
+        upsertComplaintRecord(record);
+        await loadBackendEvidence(id);
+        await loadComplaints({ silent: true });
+
+        const attempts = getResolutionAttempts(id);
+        if (message) message.textContent = "Proof published. This record is awaiting citizen verification.";
+
+        showToast(
+            `Resolution attempt ${attempts.length || 1} published · awaiting citizen verification.`
+        );
+        closeAuthorityAction();
+        await openCase(id);
+    }
+    catch (error) {
+        console.error("Authority resolution error:", error);
+        if (message) message.textContent = error.message || "Could not publish resolution evidence.";
+        showToast(error.message || "Could not publish resolution evidence.");
+    }
+    finally {
+        if (submitButton) submitButton.disabled = false;
+    }
+}
+
+function resolutionAttemptsHistoryHTML(complaint) {
+    const attempts = getResolutionAttempts(complaint.complaint_id);
+    if (!attempts.length) return "";
+
+    return `
+        <div class="resolution-attempt-history">
+            <div class="resolution-history-heading">
+                <small>PERMANENT RESOLUTION HISTORY</small>
+                <strong>${attempts.length} ${attempts.length === 1 ? "ATTEMPT" : "ATTEMPTS"} ON RECORD</strong>
+                <p>New attempts are added. Earlier attempts and citizen responses are not replaced.</p>
+            </div>
+            <div class="resolution-attempt-list">
+                ${attempts.map((entry, index) => {
+                    const proof = entry.proof || {};
+                    const review = entry.review;
+                    const reviewLabel = review?.action === "verified"
+                        ? "✓ CITIZEN VERIFIED"
+                        : review?.action === "reopened"
+                            ? "↩ ISSUE STILL EXISTS"
+                            : review?.action === "questioned"
+                                ? "! PROOF QUESTIONED"
+                                : "◌ AWAITING CITIZEN";
+                    const reviewClass = review?.action === "verified"
+                        ? "verified"
+                        : review?.action === "reopened" || review?.action === "questioned"
+                            ? "returned"
+                            : "pending";
+
+                    return `
+                        <article class="resolution-attempt-item ${reviewClass}">
+                            <div class="resolution-attempt-number">
+                                <span>ATTEMPT</span>
+                                <strong>${String(entry.attempt || index + 1).padStart(2, "0")}</strong>
+                            </div>
+                            <div class="resolution-attempt-body">
+                                <small>${escapeHTML(formatDate(proof.capturedAt))}</small>
+                                <strong>${escapeHTML(proof.authority || "Authority record")}</strong>
+                                <p>${escapeHTML(proof.note || "Resolution action recorded.")}</p>
+                                <span class="resolution-attempt-review">${reviewLabel}</span>
+                                ${review?.reason ? `<em>${escapeHTML(review.reason)}</em>` : ""}
+                            </div>
+                        </article>`;
+                }).join("")}
+            </div>
+        </div>`;
+}
+
+function verificationLayersHTML(complaint, proof, review) {
+    const locationCheck = authorityLocationCheck(complaint, proof);
+    const hash = getBlockchainHash(complaint);
+    const citizenLabel = review?.action === "verified"
+        ? "CITIZEN VERIFIED"
+        : review?.action === "reopened" || review?.action === "questioned"
+            ? "RETURNED / QUESTIONED"
+            : "AWAITING CITIZEN";
+
+    return `
+        <div class="verification-layers">
+            <div class="verification-layer ${hash ? "positive" : "neutral"}">
+                <small>RECORD INTEGRITY</small>
+                <strong>${hash ? "HASH-CHAIN ANCHOR RECORDED" : "ANCHOR NOT AVAILABLE"}</strong>
+                <p>${hash ? "A SHA-256 link is present in CITYFILE's local tamper-evident integrity chain." : "No local integrity-chain anchor is available on this loaded record."}</p>
+            </div>
+            <div class="verification-layer positive">
+                <small>AUTHORITY EVIDENCE</small>
+                <strong>SUBMITTED</strong>
+                <p>After-photo, timestamp, geotag and work note are attached to this resolution attempt.</p>
+            </div>
+            <div class="verification-layer ${locationCheck.className}">
+                <small>LOCATION CONSISTENCY</small>
+                <strong>${escapeHTML(locationCheck.label)}</strong>
+                <p>${escapeHTML(locationCheck.detail)}</p>
+            </div>
+            <div class="verification-layer ${review?.action === "verified" ? "positive" : review ? "warning" : "neutral"}">
+                <small>REAL-WORLD VERDICT</small>
+                <strong>${escapeHTML(citizenLabel)}</strong>
+                <p>Only a persisted citizen review closes the authority-resolution loop.</p>
+            </div>
+        </div>`;
+}
+
+function authorityProofPublicHTML(complaint) {
+    const id = complaint?.complaint_id;
+    const proof = getAuthorityProof(id);
+    if (!proof) return "";
+
+    const review = getCitizenReview(id);
+    const latitude = formatAuthorityCoordinate(proof.latitude);
+    const longitude = formatAuthorityCoordinate(proof.longitude);
+    const accuracy = Number.isFinite(Number(proof.accuracy)) ? `±${Math.round(Number(proof.accuracy))} m` : "—";
+    const locationCheck = authorityLocationCheck(complaint, proof);
+
+    let reviewMarkup = "";
+    if (review?.action === "verified") {
+        reviewMarkup = `
+            <div class="citizen-review-result verified" data-resolution-review="${Number(id)}">
+                <small>CITIZEN REVIEW</small>
+                <strong>✓ FIX VERIFIED</strong>
+                <p>A citizen reviewed the submitted resolution evidence and confirmed the fix.</p>
+                <span>${escapeHTML(formatDate(review.timestamp))}</span>
+            </div>`;
+    }
+    else if (review?.action === "reopened" || review?.action === "questioned") {
+        reviewMarkup = `
+            <div class="citizen-review-result challenged" data-resolution-review="${Number(id)}">
+                <small>CITIZEN CHALLENGE</small>
+                <strong>↩ RETURNED TO AUTHORITY</strong>
+                <p>${escapeHTML(review.reason || "Citizen reported that the issue still exists or the proof is questionable.")}</p>
+                <span>${escapeHTML(formatDate(review.timestamp))}</span>
+            </div>`;
+    }
+    else {
+        reviewMarkup = `
+            <div class="citizen-resolution-review" data-resolution-review="${Number(id)}">
+                <small>VERIFY RESOLUTION</small>
+                <h4>THE AUTHORITY SAYS THIS IS FIXED.<br>DO YOU AGREE?</h4>
+                <p>Compare the original report with the authority's after-evidence. A proof submission does not close this complaint by itself.</p>
+                <div class="citizen-review-actions">
+                    <button type="button" class="citizen-review-btn verify" onclick="window.reviewAuthorityResolution(${Number(id)}, 'verified')">✓ YES · VERIFY FIX</button>
+                    <button type="button" class="citizen-review-btn question" onclick="window.reviewAuthorityResolution(${Number(id)}, 'questioned')">? PROOF IS NOT CLEAR</button>
+                    <button type="button" class="citizen-review-btn reopen" onclick="window.reviewAuthorityResolution(${Number(id)}, 'reopened')">↩ NO · ISSUE STILL EXISTS</button>
+                </div>
+                <p class="citizen-review-privacy">Your response becomes part of this record. Do not include private personal information in a challenge reason.</p>
+            </div>`;
+    }
+
+    return `
+        <section class="case-record-section authority-public-proof">
+            <div class="case-section-heading">
+                <small>AUTHORITY RESOLUTION EVIDENCE</small>
+                <h3>Before → after.</h3>
+            </div>
+
+            <div class="before-after-proof">
+                <div class="before-after-column before">
+                    <div class="before-after-label"><span>BEFORE</span><small>CITIZEN RECORD</small></div>
+                    ${citizenEvidenceMarkup(complaint)}
+                </div>
+
+                <div class="before-after-arrow" aria-hidden="true">→</div>
+
+                <div class="before-after-column after">
+                    <div class="before-after-label"><span>AFTER</span><small>AUTHORITY EVIDENCE</small></div>
+                    <div class="authority-proof-media">
+                        <img src="${escapeHTML(publicFileURL(proof.image))}" alt="Authority submitted photograph showing the civic problem after repair" class="authority-proof-public-image">
+                        <div class="authority-proof-geotag-stamp">
+                            <span>GEOTAGGED RESOLUTION EVIDENCE</span>
+                            <strong>${escapeHTML(latitude)}, ${escapeHTML(longitude)}</strong>
+                            <small>${escapeHTML(formatDate(proof.capturedAt))}</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="authority-proof-public-panel">
+                <div class="authority-proof-details">
+                    <div><span>AUTHORITY / OFFICER</span><strong>${escapeHTML(proof.authority || "Authority record")}</strong></div>
+                    <div><span>CAPTURED AT</span><strong>${escapeHTML(formatDate(proof.capturedAt))}</strong></div>
+                    <div><span>GEOTAG</span><strong>${escapeHTML(latitude)}, ${escapeHTML(longitude)}</strong></div>
+                    <div><span>LOCATION ACCURACY</span><strong>${escapeHTML(accuracy)}</strong></div>
+                </div>
+
+                <div class="authority-location-check ${locationCheck.className}">
+                    <span>LOCATION CHECK</span>
+                    <strong>${escapeHTML(locationCheck.label)}</strong>
+                    <p>${escapeHTML(locationCheck.detail)}</p>
+                </div>
+
+                <div class="authority-work-note">
+                    <span>WORK COMPLETED</span>
+                    <p>${escapeHTML(proof.note || "Resolution work recorded by the responsible authority.")}</p>
+                </div>
+            </div>
+
+            ${verificationLayersHTML(complaint, proof, review)}
+            ${reviewMarkup}
+            ${resolutionAttemptsHistoryHTML(complaint)}
+        </section>`;
+}
+
+async function reviewAuthorityResolution(complaintId, action) {
+    const id = Number(complaintId);
+    const complaint = complaintById(id);
+    const proof = getAuthorityProof(id);
+
+    if (!complaint || !proof) {
+        showToast("There is no authority resolution proof to review yet.");
+        return;
+    }
+
+    if (!citykeeperCurrentUser) {
+        showToast("Sign in as a citizen before verifying a resolution.");
+        await openCitykeeperAuth();
+        return;
+    }
+
+    if (citykeeperCurrentUser.is_authority) {
+        showToast("Authority accounts cannot perform the citizen verification step.");
+        return;
+    }
+
+    let reason = "";
+
+    if (action === "verified") {
+        const confirmed = window.confirm(
+            "Verify this fix?\n\nThis records that you reviewed the authority's evidence and believe the civic problem has been fixed."
+        );
+        if (!confirmed) return;
+        reason = "Citizen confirmed that the submitted proof matches the fixed real-world condition.";
+    }
+    else if (action === "questioned") {
+        const response = window.prompt(
+            "Why is this proof unclear or questionable?\n\nFor example: wrong location, unclear repair, or evidence does not show the reported problem."
+        );
+        if (response === null) return;
+        reason = response.trim();
+        if (!reason) {
+            showToast("Please explain why the resolution proof is questionable.");
+            return;
+        }
+    }
+    else if (action === "reopened") {
+        const response = window.prompt(
+            "Tell the authority what still exists.\n\nDo not include private personal information."
+        );
+        if (response === null) return;
+        reason = response.trim();
+        if (!reason) {
+            showToast("Please briefly explain why the issue still exists.");
+            return;
+        }
+    }
+    else {
+        return;
+    }
+
+    try {
+        const result = await fetchJSON(
+            `/complaints/${id}/resolution-review`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ decision: action, reason })
+            }
+        );
+
+        if (result?.complaint) upsertComplaintRecord(result.complaint);
+        await loadComplaints({ silent: true });
+
+        showToast(
+            action === "verified"
+                ? "Resolution citizen verified."
+                : "Resolution returned to the authority queue. Previous proof remains on record."
+        );
+
+        await openCase(id);
+    }
+    catch (error) {
+        console.error("Citizen resolution review error:", error);
+        showToast(error.message || "Could not save citizen verification.");
+    }
+}
+
+async function openCitizenVerification(complaintId) {
+    const id = Number(complaintId);
+    await openCase(id);
+
+    setTimeout(() => {
+        document.querySelector(`[data-resolution-review="${id}"]`)?.scrollIntoView({
+            behavior: "smooth",
+            block: "center"
+        });
+    }, 80);
+}
+
+async function updateAuthorityStatus(complaintId, status) {
+    const id = Number(complaintId);
+
+    if (!citykeeperCurrentUser) {
+        showToast("Sign in with an authorized authority account first.");
+        await openCitykeeperAuth();
+        return;
+    }
+
+    if (!citykeeperCurrentUser.is_authority) {
+        showToast("This account is not authorized for authority actions.");
+        return;
+    }
+
+    try {
+        const record = await fetchJSON(`/complaints/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status })
+        });
+
+        upsertComplaintRecord(record);
+        await loadComplaints({ silent: true });
+        showToast(`Record ${formatComplaintId(id)} → ${status}.`);
+    }
+    catch (error) {
+        console.error("Authority status update error:", error);
+        showToast(error.message || "Could not update authority status.");
+    }
+}
+
+async function updateAuthorityDeadline(complaintId) {
+    const id = Number(complaintId);
+
+    if (!citykeeperCurrentUser) {
+        showToast("Sign in with an authorized authority account first.");
+        await openCitykeeperAuth();
+        return;
+    }
+
+    if (!citykeeperCurrentUser.is_authority) {
+        showToast("This account is not authorized for authority actions.");
+        return;
+    }
+
+    const complaint = complaintById(id);
+    const existing = complaint?.deadline
+        ? new Date(complaint.deadline).toISOString().slice(0, 16)
+        : "";
+    const raw = window.prompt(
+        "Set the authority deadline (YYYY-MM-DDTHH:MM).",
+        existing
+    );
+
+    if (raw === null) return;
+
+    const parsed = new Date(raw);
+    if (!Number.isFinite(parsed.getTime())) {
+        showToast("Enter a valid deadline date and time.");
+        return;
+    }
+
+    try {
+        const record = await fetchJSON(`/complaints/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deadline: parsed.toISOString() })
+        });
+
+        upsertComplaintRecord(record);
+        await loadComplaints({ silent: true });
+        showToast(`Deadline updated for ${formatComplaintId(id)}.`);
+    }
+    catch (error) {
+        console.error("Authority deadline update error:", error);
+        showToast(error.message || "Could not update the deadline.");
+    }
+}
+
+
+function initializeAuthorityDashboard() {
+    document.getElementById("authorityClosePanel")?.addEventListener("click", closeAuthorityAction);
+    document.getElementById("authorityCaptureGeo")?.addEventListener("click", captureAuthorityGeotag);
+    document.getElementById("authorityProofImage")?.addEventListener("change", handleAuthorityProofImage);
+    document.getElementById("authorityResolutionForm")?.addEventListener("submit", submitAuthorityResolution);
+
+    document.getElementById("authorityCategoryGrid")?.addEventListener("click", event => {
+    const card = event.target.closest("[data-authority-category]");
+
+    if (!card) return;
+
+    // Set the selected problem category
+    activeAuthorityCategory =
+        card.dataset.authorityCategory || "all";
+
+    // Re-render the Priority Queue using this category
+    renderAuthorityDashboard();
+
+    // Move the user directly to the filtered problems
+    requestAnimationFrame(() => {
+        const queue =
+            document.getElementById("authorityComplaintGrid");
+
+        if (!queue) return;
+
+        const header =
+            document.querySelector(".site-header");
+
+        const headerHeight =
+            header?.offsetHeight || 0;
+
+        const targetTop =
+            queue.getBoundingClientRect().top +
+            window.pageYOffset -
+            headerHeight -
+            90;
+
+        window.scrollTo({
+            top: targetTop,
+            behavior: "smooth"
+        });
+    });
+});
+
+    document.getElementById("authorityStatusFilters")?.addEventListener("click", event => {
+        const button = event.target.closest("[data-authority-status]");
+        if (!button) return;
+        activeAuthorityStatus = button.dataset.authorityStatus || "all";
+        renderAuthorityDashboard();
+    });
+
+    document.getElementById("authoritySearch")?.addEventListener("input", event => {
+        authoritySearchTerm = event.target.value || "";
+        renderAuthorityDashboard();
+    });
+
+    document.getElementById("authoritySort")?.addEventListener("change", event => {
+        authoritySortOrder = event.target.value === "newest" ? "newest" : "oldest";
+        renderAuthorityDashboard();
+    });
+}
+/* ============================================================
+   CITYKEEPERS — COMMUNITY ACTION FRONTEND
+   Uses live complaint records, authenticated participation and backend verification.
+   ============================================================ */
+
+function getCitykeeperState() {
+    const joined = {};
+
+    for (
+        const participation of
+        citykeeperParticipations
+    ) {
+        joined[
+            String(
+                participation.complaint_id
+            )
+        ] = {
+            participationId:
+                participation.participation_id,
+            joinedAt:
+                participation.joined_at
+        };
+    }
+
+    const evidence = {};
+
+    for (
+        const item of (
+            citykeeperProfileData?.trail ||
+            []
+        )
+    ) {
+        if (!item.evidence_id) {
+            continue;
+        }
+
+        evidence[
+            String(
+                item.complaint_id
+            )
+        ] = {
+            evidenceId:
+                item.evidence_id,
+            submittedAt:
+                item.evidence_submitted_at,
+            verificationDecision:
+                item.verification_decision
+        };
+    }
+
+    return {
+        citykeeperId:
+            citykeeperCurrentUser
+                ?.public_user_id ||
+            "SIGN IN",
+        joined,
+        evidence
+    };
+}
+
+
+function saveCitykeeperState() {
+    // CITYKEEPERS state is backend-driven now.
+    // Kept as a no-op only for compatibility with
+    // any old event path that may still call it.
+    return true;
+}
+
+function communityComplaintText(complaint) {
+    return [
+        getCategoryName(complaint),
+        getDepartmentName(complaint),
+        complaint?.description,
+        complaint?.location
+    ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+}
+
+function isCommunityEligible(complaint) {
+    if (!complaint) {
+        return false;
+    }
+
+    if (typeof complaint.citykeeper_eligible === "boolean") {
+        return complaint.citykeeper_eligible;
+    }
+
+    const group = issueGroup(complaint);
+    const text = communityComplaintText(complaint);
+
+    /*
+     * IMPORTANT:
+     * Do NOT remove a complaint merely because its
+     * Citykeeper contribution has been verified.
+     *
+     * Verified community work must remain visible
+     * as part of CITYFILE's permanent civic record.
+     */
+
+    // Infrastructure/safety work stays with trained authorities.
+    if (
+        [
+            "road",
+            "water",
+            "drainage",
+            "streetlight",
+            "safety"
+        ].includes(group)
+    ) {
+        return false;
+    }
+
+    if (group === "sanitation") {
+        return true;
+    }
+
+    return /park|garden|public space|litter|garbage|trash|waste|graffiti|wall|tree|plant|clean(?:ing|up)?|playground|community space/.test(
+        text
+    );
+}
+
+function communityMissionType(complaint) {
+    const text = communityComplaintText(complaint);
+
+    if (/graffiti|wall|paint/.test(text)) return "PUBLIC SPACE RESTORATION";
+    if (/tree|plant|garden|park/.test(text)) return "PUBLIC SPACE CARE";
+    if (/garbage|trash|waste|litter|clean/.test(text)) return "COMMUNITY CLEANUP";
+
+    return "COMMUNITY ACTION";
+}
+
+
+function communityMissionResources(complaint) {
+    const text = communityComplaintText(complaint);
+
+    if (/graffiti|wall|paint/.test(text)) {
+        return ["PEOPLE", "GLOVES", "CLEANUP TOOLS"];
+    }
+
+    if (/tree|plant|garden|park/.test(text)) {
+        return ["PEOPLE", "GLOVES", "CARE TOOLS"];
+    }
+
+    return ["PEOPLE", "GLOVES", "WASTE BAGS"];
+}
+
+
+function communityVisualKind(complaint) {
+    const text = communityComplaintText(complaint);
+
+    if (/tree|plant|garden|park/.test(text)) return "park";
+    if (/graffiti|wall|paint/.test(text)) return "wall";
+    return "cleanup";
+}
+
+
+function communityFallbackVisualMarkup(complaint) {
+    const kind = communityVisualKind(complaint);
+
+    if (kind === "park") {
+        return `
+            <div class="ck-scene ck-scene-park" aria-hidden="true">
+                <span class="ck-moon"></span>
+                <span class="ck-tree tree-one"></span>
+                <span class="ck-tree tree-two"></span>
+                <span class="ck-bench"></span>
+                <span class="ck-ground-mark mark-one"></span>
+                <span class="ck-ground-mark mark-two"></span>
+            </div>`;
+    }
+
+    if (kind === "wall") {
+        return `
+            <div class="ck-scene ck-scene-wall" aria-hidden="true">
+                <span class="ck-wall-plane"></span>
+                <span class="ck-wall-mark mark-a"></span>
+                <span class="ck-wall-mark mark-b"></span>
+                <span class="ck-paint-can"></span>
+            </div>`;
+    }
+
+    return `
+        <div class="ck-scene ck-scene-cleanup" aria-hidden="true">
+            <span class="ck-city-line"></span>
+            <span class="ck-bin-visual"></span>
+            <span class="ck-trash-shape trash-a"></span>
+            <span class="ck-trash-shape trash-b"></span>
+            <span class="ck-trash-shape trash-c"></span>
+            <span class="ck-street-glow"></span>
+        </div>`;
+}
+
+
+function latestCitykeeperEvidenceForComplaint(complaintId) {
+    const id = Number(complaintId);
+    const evidenceList = backendEvidenceCache.get(id) || [];
+
+    return evidenceList
+        .filter(item => item?.evidence_type === "citykeeper_after")
+        .slice()
+        .sort((a, b) => {
+            const aTime = Date.parse(a?.uploaded_at || "") || 0;
+            const bTime = Date.parse(b?.uploaded_at || "") || 0;
+            if (aTime !== bTime) return bTime - aTime;
+            return Number(b?.evidence_id || 0) - Number(a?.evidence_id || 0);
+        })[0] || null;
+}
+
+function communityEvidenceImage(complaint) {
+
+    const complaintId =
+        Number(complaint?.complaint_id);
+
+    const evidenceList =
+        backendEvidenceCache.get(complaintId) || [];
+
+    const citizenEvidence =
+        evidenceList.find(
+            evidence =>
+                evidence.evidence_type === "citizen_report"
+        );
+
+    if (!citizenEvidence?.file_url) {
+        return "";
+    }
+
+    return citizenEvidence.file_url.startsWith("http")
+        ? citizenEvidence.file_url
+        : `${API_BASE_URL}${citizenEvidence.file_url}`;
+}
+
+function citykeeperMissionRecords() {
+    return allComplaints
+        .filter(isCommunityEligible)
+        .filter(complaint => {
+            const id = Number(
+                complaint.complaint_id
+            );
+
+            const evidenceList =
+                backendEvidenceCache.get(id) || [];
+
+            const evidence = latestCitykeeperEvidenceForComplaint(id);
+
+            const verification =
+                citykeeperVerificationCache.get(id) ||
+                null;
+
+            const verified =
+                Boolean(
+                    evidence &&
+                    verification &&
+                    Number(
+                        verification.evidence_id
+                    ) ===
+                        Number(
+                            evidence.evidence_id
+                        ) &&
+                    String(
+                        verification.decision || ""
+                    ).toLowerCase() ===
+                        "verified"
+                );
+
+            // OPEN MISSIONS ONLY
+            return !verified;
+        })
+        .slice()
+        .sort(
+            (a, b) =>
+                complaintAgeMs(b) -
+                complaintAgeMs(a)
+        );
+}
+
+function citykeeperVerifiedRecords() {
+    return allComplaints
+        .filter(isCommunityEligible)
+        .filter(complaint => {
+            const id = Number(
+                complaint.complaint_id
+            );
+
+            const evidenceList =
+                backendEvidenceCache.get(id) || [];
+
+            const evidence = latestCitykeeperEvidenceForComplaint(id);
+
+            const verification =
+                citykeeperVerificationCache.get(id) ||
+                null;
+
+            return Boolean(
+                evidence &&
+                verification &&
+                Number(
+                    verification.evidence_id
+                ) ===
+                    Number(
+                        evidence.evidence_id
+                    ) &&
+                String(
+                    verification.decision || ""
+                ).toLowerCase() ===
+                    "verified"
+            );
+        })
+        .slice()
+        .sort((a, b) => {
+            const aVerification =
+                citykeeperVerificationCache.get(
+                    Number(a.complaint_id)
+                );
+
+            const bVerification =
+                citykeeperVerificationCache.get(
+                    Number(b.complaint_id)
+                );
+
+            const aTime =
+                Date.parse(
+                    aVerification?.created_at || ""
+                ) || 0;
+
+            const bTime =
+                Date.parse(
+                    bVerification?.created_at || ""
+                ) || 0;
+
+            return bTime - aTime;
+        });
+}
+
+function renderCitykeeperMissionCard(complaint, state) {
+    const id = Number(
+        complaint.complaint_id
+    );
+
+    const joined = Boolean(
+        state.joined[
+            String(id)
+        ]
+    );
+
+    const evidenceList =
+        backendEvidenceCache.get(
+            id
+        ) || [];
+
+    const evidence = latestCitykeeperEvidenceForComplaint(id);
+
+    const verification =
+        citykeeperVerificationCache.get(
+            id
+        ) || null;
+
+    const verifiedContribution =
+        Boolean(
+            evidence &&
+            verification &&
+            Number(
+                verification.evidence_id
+            ) ===
+                Number(
+                    evidence.evidence_id
+                ) &&
+            String(
+                verification.decision
+            ).toLowerCase() ===
+                "verified"
+        );
+
+    const rejectedContribution =
+        Boolean(
+            evidence &&
+            verification &&
+            Number(
+                verification.evidence_id
+            ) ===
+                Number(
+                    evidence.evidence_id
+                ) &&
+            String(
+                verification.decision
+            ).toLowerCase() ===
+                "rejected"
+        );
+
+    const ownContribution =
+        Boolean(
+            evidence &&
+            citykeeperCurrentUser &&
+            Number(
+                evidence.uploaded_by_user
+            ) ===
+                Number(
+                    citykeeperCurrentUser.user_id
+                )
+        );
+
+    const image =
+        communityEvidenceImage(
+            complaint
+        );
+
+    const missionStats =
+        citykeeperMissionStatsCache.get(
+            id
+        ) || {};
+
+    const participantCount =
+        Number(
+            missionStats.participant_count ||
+            0
+        );
+
+    let localState =
+        "OPEN TO CITYKEEPERS";
+
+    if (verifiedContribution) {
+        localState =
+            ownContribution
+                ? "YOUR IMPACT · VERIFIED"
+                : "COMMUNITY IMPACT · VERIFIED";
+    }
+    else if (rejectedContribution) {
+        localState =
+            ownContribution
+                ? "YOUR PROOF NEEDS A RETRY"
+                : "NEW PROOF NEEDED";
+    }
+    else if (evidence) {
+        localState =
+            ownContribution
+                ? "YOUR EVIDENCE · AWAITING VERIFICATION"
+                : "EVIDENCE · AWAITING VERIFICATION";
+    }
+    else if (joined) {
+        localState =
+            "YOU JOINED THIS MISSION";
+    }
+
+    const footerLabel =
+        participantCount > 0
+            ? `${participantCount} ${
+                participantCount === 1
+                    ? "CITYKEEPER"
+                    : "CITYKEEPERS"
+              } JOINED`
+            : "OPEN COMMUNITY FILE";
+
+    return `
+        <article
+            class="
+                citykeeper-mission-card
+                ${joined ? "joined" : ""}
+                ${verifiedContribution ? "verified" : ""}
+            "
+            data-citykeeper-mission="${id}"
+        >
+
+            <button
+                type="button"
+                class="citykeeper-mission-open"
+                data-open-citykeeper-mission="${id}"
+                aria-label="Open ${escapeHTML(
+                    getCategoryName(
+                        complaint
+                    )
+                )} community mission"
+            >
+
+                <div
+                    class="
+                        citykeeper-mission-media
+                        ${image ? "has-image" : ""}
+                    "
+                >
+
+                    ${
+                        image
+                            ? `
+                                <img
+                                    src="${escapeHTML(
+                                        image
+                                    )}"
+                                    alt="Citizen evidence for ${escapeHTML(
+                                        getCategoryName(
+                                            complaint
+                                        )
+                                    )}"
+                                >
+                            `
+                            : communityFallbackVisualMarkup(
+                                complaint
+                            )
+                    }
+
+                    <span class="citykeeper-safe-stamp">
+                        COMMUNITY-SAFE
+                    </span>
+
+                    <span class="citykeeper-record-stamp">
+                        ${escapeHTML(
+                            formatComplaintId(
+                                id
+                            )
+                        )}
+                    </span>
+
+                    <span
+                        class="citykeeper-media-scan"
+                        aria-hidden="true"
+                    ></span>
+
+                </div>
+
+
+                <div class="citykeeper-mission-copy">
+
+                    <div class="citykeeper-mission-topline">
+
+                        <small>
+                            ${escapeHTML(
+                                communityMissionType(
+                                    complaint
+                                )
+                            )}
+                        </small>
+
+                        <span>
+                            ${escapeHTML(
+                                formatDuration(
+                                    complaintAgeMs(
+                                        complaint
+                                    )
+                                )
+                            )}
+                        </span>
+
+                    </div>
+
+
+                    <h4>
+                        ${escapeHTML(
+                            getCategoryName(
+                                complaint
+                            )
+                        )}
+                    </h4>
+
+
+                    <p>
+                        ${escapeHTML(
+                            publicLocation(
+                                complaint
+                            )
+                        )}
+                    </p>
+
+
+                    <div class="citykeeper-mission-state">
+
+                        <span></span>
+
+                        <strong>
+                            ${escapeHTML(
+                                localState
+                            )}
+                        </strong>
+
+                    </div>
+
+
+                    <div class="citykeeper-mission-footer">
+
+                        <span>
+                            ${escapeHTML(
+                                footerLabel
+                            )}
+                        </span>
+
+                        <b>
+                            ↗
+                        </b>
+
+                    </div>
+
+                </div>
+
+            </button>
+
+        </article>
+    `;
+}
+
+function renderCitykeeperVerifiedCard(complaint) {
+    const id = Number(
+        complaint.complaint_id
+    );
+
+    const evidenceList =
+        backendEvidenceCache.get(id) || [];
+
+    const beforeEvidence =
+        evidenceList.find(
+            item =>
+                item.evidence_type ===
+                "citizen_report"
+        ) || null;
+
+    const afterEvidence =
+        latestCitykeeperEvidenceForComplaint(id);
+
+    const verification =
+        citykeeperVerificationCache.get(id) ||
+        null;
+
+
+    const beforeImage =
+        beforeEvidence?.file_url
+            ? (
+                beforeEvidence.file_url.startsWith("http")
+                    ? beforeEvidence.file_url
+                    : `${API_BASE_URL}${beforeEvidence.file_url}`
+              )
+            : "";
+
+
+    const afterImage =
+        afterEvidence?.file_url
+            ? (
+                afterEvidence.file_url.startsWith("http")
+                    ? afterEvidence.file_url
+                    : `${API_BASE_URL}${afterEvidence.file_url}`
+              )
+            : "";
+
+
+    return `
+        <article
+            class="citykeeper-verified-card"
+            data-citykeeper-mission="${id}"
+        >
+
+            <button
+                type="button"
+                class="citykeeper-verified-open"
+                data-open-citykeeper-mission="${id}"
+            >
+
+                <div class="citykeeper-impact-images">
+
+                    <div class="citykeeper-impact-image">
+                        ${
+                            beforeImage
+                                ? `
+                                    <img
+                                        src="${escapeHTML(beforeImage)}"
+                                        alt="Original citizen evidence"
+                                    >
+                                `
+                                : `
+                                    <div class="citykeeper-impact-no-image">
+                                        NO BEFORE IMAGE
+                                    </div>
+                                `
+                        }
+
+                        <span>BEFORE</span>
+                    </div>
+
+
+                    <div class="citykeeper-impact-arrow">
+                        →
+                    </div>
+
+
+                    <div class="citykeeper-impact-image">
+                        ${
+                            afterImage
+                                ? `
+                                    <img
+                                        src="${escapeHTML(afterImage)}"
+                                        alt="Citykeeper action evidence"
+                                    >
+                                `
+                                : `
+                                    <div class="citykeeper-impact-no-image">
+                                        NO AFTER IMAGE
+                                    </div>
+                                `
+                        }
+
+                        <span>AFTER</span>
+                    </div>
+
+                </div>
+
+
+                <div class="citykeeper-verified-copy">
+
+                    <div class="citykeeper-verified-topline">
+                        <span>
+                            ${escapeHTML(
+                                formatComplaintId(id)
+                            )}
+                        </span>
+
+                        <strong>
+                            ✓ VERIFIED COMMUNITY IMPACT
+                        </strong>
+                    </div>
+
+
+                    <h4>
+                        ${escapeHTML(
+                            getCategoryName(
+                                complaint
+                            )
+                        )}
+                    </h4>
+
+
+                    <p>
+                        ${escapeHTML(
+                            publicLocation(
+                                complaint
+                            )
+                        )}
+                    </p>
+
+
+                    <div class="citykeeper-verified-meta">
+
+                        <span>
+                            CITIZENS ACTED
+                        </span>
+
+                        <span>
+                            VERIFIED
+                            ${
+                                verification?.created_at
+                                    ? ` · ${escapeHTML(
+                                        formatDate(
+                                            verification.created_at
+                                        )
+                                    )}`
+                                    : ""
+                            }
+                        </span>
+
+                    </div>
+
+
+                    <div class="citykeeper-verified-footer">
+                        <span>
+                            VIEW IMPACT RECORD
+                        </span>
+
+                        <b>↗</b>
+                    </div>
+
+                </div>
+
+            </button>
+
+        </article>
+    `;
+}
+
+function renderCitykeeperVerifiedImpact() {
+    const section =
+        document.getElementById(
+            "citykeeperVerifiedImpact"
+        );
+
+    const grid =
+        document.getElementById(
+            "citykeeperVerifiedGrid"
+        );
+
+    const label =
+        document.getElementById(
+            "citykeeperVerifiedImpactLabel"
+        );
+
+
+    if (!section || !grid) {
+        return;
+    }
+
+
+    const records =
+        citykeeperVerifiedRecords();
+
+
+    if (label) {
+        label.textContent =
+            records.length
+                ? `${records.length} ${
+                    records.length === 1
+                        ? "PROBLEM"
+                        : "PROBLEMS"
+                  } IMPROVED BY CITIZENS`
+                : "NO VERIFIED COMMUNITY IMPACT YET";
+    }
+
+
+    if (!records.length) {
+        grid.innerHTML = `
+            <div class="citykeeper-empty-missions">
+
+                <span class="citykeeper-empty-symbol">
+                    CK
+                </span>
+
+                <div>
+                    <small>
+                        THE RECORD IS WAITING
+                    </small>
+
+                    <strong>
+                        No verified citizen impact yet.
+                    </strong>
+
+                    <p>
+                        When Citykeepers act and another
+                        citizen verifies the evidence,
+                        that impact will remain visible here.
+                    </p>
+                </div>
+
+            </div>
+        `;
+
+        return;
+    }
+
+
+    grid.innerHTML =
+        records
+            .map(
+                complaint =>
+                    renderCitykeeperVerifiedCard(
+                        complaint
+                    )
+            )
+            .join("");
+}
+
+function renderCitykeeperMissions(state) {
+    const grid = document.getElementById("citykeeperMissionGrid");
+    const count = document.getElementById("citykeeperMissionCount");
+    const label = document.getElementById("citykeeperOpenMissionLabel");
+    const ring = document.getElementById("citykeepersSignalRing");
+
+    if (!grid) return;
+
+    const records = citykeeperMissionRecords();
+
+    if (count) count.textContent = records.length.toLocaleString("en-IN");
+
+    if (label) {
+        label.textContent = records.length
+            ? `${records.length} COMMUNITY-SAFE ${records.length === 1 ? "FILE IS" : "FILES ARE"} OPEN`
+            : "NO COMMUNITY-SAFE FILES ARE OPEN RIGHT NOW";
+    }
+
+    if (ring) {
+        const signal = Math.min(100, Math.max(8, records.length * 18));
+        ring.style.setProperty("--ck-signal", `${signal * 3.6}deg`);
+    }
+
+    if (!records.length) {
+        grid.innerHTML = `
+            <div class="citykeeper-empty-missions">
+                <span class="citykeeper-empty-symbol">CF</span>
+                <div>
+                    <small>NO MISSION TO DISPLAY</small>
+                    <strong>The community queue is clear.</strong>
+                    <p>Infrastructure files remain with authorities. New community-safe reports will appear here automatically.</p>
+                </div>
+            </div>`;
+        return;
+    }
+
+    grid.innerHTML = records
+        .map(complaint => renderCitykeeperMissionCard(complaint, state))
+        .join("");
+}
+function citykeeperContributionStatus(complaint, state) {
+    const complaintId =
+        Number(complaint.complaint_id);
+
+    const key =
+        String(complaintId);
+
+    const joined =
+        state.joined[key];
+
+
+    // =====================================================
+    // REAL CITYKEEPER EVIDENCE
+    // =====================================================
+
+    const evidenceList =
+        backendEvidenceCache.get(
+            complaintId
+        ) || [];
+
+    const evidence = latestCitykeeperEvidenceForComplaint(id);
+
+
+    // =====================================================
+    // REAL CITYKEEPER VERIFICATION
+    // =====================================================
+
+    const verification =
+        citykeeperVerificationCache.get(
+            complaintId
+        ) || null;
+
+    const verified =
+        Boolean(
+            evidence &&
+            verification &&
+            Number(verification.evidence_id) ===
+                Number(evidence.evidence_id) &&
+            String(
+                verification.decision
+            ).toLowerCase() === "verified"
+        );
+
+    const rejected =
+        Boolean(
+            evidence &&
+            verification &&
+            Number(verification.evidence_id) ===
+                Number(evidence.evidence_id) &&
+            String(
+                verification.decision
+            ).toLowerCase() === "rejected"
+        );
+
+
+    // =====================================================
+    // STATUS
+    // =====================================================
+
+    if (verified) {
+        return {
+            label:
+                "VERIFIED COMMUNITY IMPACT",
+
+            className:
+                "verified",
+
+            time:
+                verification.created_at ||
+                evidence.uploaded_at ||
+                joined?.joinedAt ||
+                complaint.created_at
+        };
+    }
+
+
+    if (rejected) {
+        return {
+            label:
+                "EVIDENCE NOT VERIFIED",
+
+            className:
+                "rejected",
+
+            time:
+                verification.created_at ||
+                evidence.uploaded_at ||
+                joined?.joinedAt ||
+                complaint.created_at
+        };
+    }
+
+
+    if (evidence) {
+        return {
+            label:
+                "AWAITING CITIZEN VERIFICATION",
+
+            className:
+                "evidence",
+
+            time:
+                evidence.uploaded_at ||
+                joined?.joinedAt ||
+                complaint.created_at
+        };
+    }
+
+
+    return {
+        label:
+            "MISSION JOINED",
+
+        className:
+            "joined",
+
+        time:
+            joined?.joinedAt ||
+            complaint.created_at
+    };
+}
+
+function renderCitykeeperProfile(state = getCitykeeperState()) {
+    const profileId =
+        document.getElementById(
+            "citykeeperProfileId"
+        );
+
+    const joinedCount =
+        document.getElementById(
+            "citykeeperJoinedCount"
+        );
+
+    const evidenceCount =
+        document.getElementById(
+            "citykeeperEvidenceCount"
+        );
+
+    const verifiedCount =
+        document.getElementById(
+            "citykeeperVerifiedCount"
+        );
+
+    const status =
+        document.getElementById(
+            "citykeeperProfileStatus"
+        );
+
+    const trail =
+        document.getElementById(
+            "citykeeperTrail"
+        );
+
+    const impactRing =
+        document.getElementById(
+            "citykeeperImpactRing"
+        );
+
+    const impactPercent =
+        document.getElementById(
+            "citykeeperImpactPercent"
+        );
+
+
+    // =====================================================
+    // JOINED MISSIONS
+    // =====================================================
+
+    const joinedIds =
+        Object.keys(
+            state.joined || {}
+        );
+
+
+    // =====================================================
+    // REAL BACKEND CITYKEEPER EVIDENCE
+    // =====================================================
+
+    const evidenceIds =
+        joinedIds.filter(id => {
+
+            const evidenceList =
+                backendEvidenceCache.get(
+                    Number(id)
+                ) || [];
+
+            return evidenceList.some(
+                item =>
+                    item.evidence_type ===
+                    "citykeeper_after"
+            );
+        });
+
+
+    // =====================================================
+    // REAL CITYKEEPER VERIFICATIONS
+    // =====================================================
+
+    const verifiedIds =
+        evidenceIds.filter(id => {
+
+            const evidenceList =
+                backendEvidenceCache.get(
+                    Number(id)
+                ) || [];
+
+            const evidence =
+                latestCitykeeperEvidenceForComplaint(id);
+
+            const verification =
+                citykeeperVerificationCache.get(
+                    Number(id)
+                );
+
+            return Boolean(
+                evidence &&
+                verification &&
+                Number(
+                    verification.evidence_id
+                ) ===
+                    Number(
+                        evidence.evidence_id
+                    ) &&
+                String(
+                    verification.decision
+                ).toLowerCase() ===
+                    "verified"
+            );
+        });
+
+
+    // =====================================================
+    // PROFILE COUNTERS
+    // =====================================================
+
+    if (profileId) {
+        profileId.textContent =
+            state.citykeeperId;
+    }
+
+    if (joinedCount) {
+        joinedCount.textContent =
+            joinedIds.length.toLocaleString(
+                "en-IN"
+            );
+    }
+
+    if (evidenceCount) {
+        evidenceCount.textContent =
+            evidenceIds.length.toLocaleString(
+                "en-IN"
+            );
+    }
+
+    if (verifiedCount) {
+        verifiedCount.textContent =
+            verifiedIds.length.toLocaleString(
+                "en-IN"
+            );
+    }
+
+
+    // =====================================================
+    // PROFILE STATUS
+    // =====================================================
+
+    if (status) {
+        status.textContent =
+            verifiedIds.length
+                ? "VERIFIED CITYKEEPER"
+                : evidenceIds.length
+                    ? "IMPACT AWAITING VERIFICATION"
+                    : joinedIds.length
+                        ? "MISSION ACTIVE"
+                        : "READY TO HELP";
+    }
+
+
+    // =====================================================
+    // IMPACT PERCENTAGE
+    // =====================================================
+
+    const percent =
+        evidenceIds.length
+            ? Math.round(
+                (
+                    verifiedIds.length /
+                    evidenceIds.length
+                ) * 100
+            )
+            : 0;
+
+
+    if (impactRing) {
+        impactRing.style.setProperty(
+            "--ck-impact",
+            `${percent * 3.6}deg`
+        );
+    }
+
+    if (impactPercent) {
+        impactPercent.textContent =
+            `${percent}%`;
+    }
+
+
+    // =====================================================
+    // IMPACT TRAIL
+    // =====================================================
+
+    if (!trail) {
+        return;
+    }
+
+
+    const trailRecords =
+        joinedIds
+
+            .map(id =>
+                allComplaints.find(
+                    item =>
+                        String(
+                            item.complaint_id
+                        ) === String(id)
+                )
+            )
+
+            .filter(Boolean)
+
+            .map(complaint => ({
+                complaint,
+
+                status:
+                    citykeeperContributionStatus(
+                        complaint,
+                        state
+                    )
+            }))
+
+            .sort(
+                (a, b) =>
+                    Date.parse(
+                        b.status.time || ""
+                    ) -
+                    Date.parse(
+                        a.status.time || ""
+                    )
+            );
+
+
+    if (!trailRecords.length) {
+
+        trail.innerHTML = `
+            <div class="citykeeper-empty-trail">
+
+                <span>00</span>
+
+                <div>
+
+                    <strong>
+                        NO MARKS YET.
+                    </strong>
+
+                    <p>
+                        Your first joined community mission
+                        will begin your Citykeeper trail.
+                    </p>
+
+                </div>
+
+            </div>
+        `;
+
+        return;
+    }
+
+
+    trail.innerHTML =
+        trailRecords
+
+            .map(
+                (
+                    {
+                        complaint,
+                        status: itemStatus
+                    },
+                    index
+                ) => `
+
+                <button
+                    type="button"
+                    class="
+                        citykeeper-trail-item
+                        ${itemStatus.className}
+                    "
+                    data-open-citykeeper-mission="${
+                        Number(
+                            complaint.complaint_id
+                        )
+                    }"
+                >
+
+                    <span
+                        class="citykeeper-trail-node"
+                    >
+                        ${
+                            String(
+                                index + 1
+                            ).padStart(
+                                2,
+                                "0"
+                            )
+                        }
+                    </span>
+
+                    <span
+                        class="citykeeper-trail-line"
+                        aria-hidden="true"
+                    ></span>
+
+                    <span
+                        class="citykeeper-trail-body"
+                    >
+
+                        <small>
+                            ${escapeHTML(
+                                formatDate(
+                                    itemStatus.time
+                                )
+                            )}
+                        </small>
+
+                        <strong>
+                            ${escapeHTML(
+                                getCategoryName(
+                                    complaint
+                                )
+                            )}
+                        </strong>
+
+                        <i>
+                            ${escapeHTML(
+                                formatComplaintId(
+                                    complaint.complaint_id
+                                )
+                            )}
+                            ·
+                            ${escapeHTML(
+                                publicLocation(
+                                    complaint
+                                )
+                            )}
+                        </i>
+
+                    </span>
+
+                    <b>
+                        ${escapeHTML(
+                            itemStatus.label
+                        )}
+                    </b>
+
+                </button>
+            `
+            )
+
+            .join("");
+}
+
+function citykeeperHallEntry(state) {
+
+    const joinedIds =
+        Object.keys(
+            state.joined || {}
+        );
+
+
+    // =====================================================
+    // FIND REAL VERIFIED CITYKEEPER CONTRIBUTIONS
+    // =====================================================
+
+    const verifiedContributions = [];
+
+
+    for (const id of joinedIds) {
+
+        const complaintId =
+            Number(id);
+
+        const evidenceList =
+            backendEvidenceCache.get(
+                complaintId
+            ) || [];
+
+        const evidence =
+            latestCitykeeperEvidenceForComplaint(complaintId);
+
+        if (!evidence) {
+            continue;
+        }
+
+
+        const verification =
+            citykeeperVerificationCache.get(
+                complaintId
+            );
+
+
+        const verified =
+            Boolean(
+                verification &&
+                Number(
+                    verification.evidence_id
+                ) ===
+                    Number(
+                        evidence.evidence_id
+                    ) &&
+                String(
+                    verification.decision
+                ).toLowerCase() ===
+                    "verified"
+            );
+
+
+        if (!verified) {
+            continue;
+        }
+
+
+        verifiedContributions.push({
+            complaintId:
+                complaintId,
+
+            evidence:
+                evidence,
+
+            verification:
+                verification,
+
+            time:
+                verification.created_at ||
+                evidence.uploaded_at
+        });
+    }
+
+
+    if (!verifiedContributions.length) {
+        return null;
+    }
+
+
+    // =====================================================
+    // MONTH FILTER
+    // =====================================================
+
+    const now =
+        new Date();
+
+
+    const currentMonthVerified =
+        verifiedContributions.filter(
+            contribution => {
+
+                if (!contribution.time) {
+                    return false;
+                }
+
+                const date =
+                    new Date(
+                        contribution.time
+                    );
+
+                return (
+                    date.getFullYear() ===
+                        now.getFullYear() &&
+
+                    date.getMonth() ===
+                        now.getMonth()
+                );
+            }
+        );
+
+
+    const selectedContributions =
+        citykeeperHallPeriod === "month"
+            ? currentMonthVerified
+            : verifiedContributions;
+
+
+    if (!selectedContributions.length) {
+        return null;
+    }
+
+
+    // =====================================================
+    // TOTAL REAL EVIDENCE COUNT
+    // =====================================================
+
+    const evidenceCount =
+        joinedIds.filter(id => {
+
+            const evidenceList =
+                backendEvidenceCache.get(
+                    Number(id)
+                ) || [];
+
+            return evidenceList.some(
+                item =>
+                    item.evidence_type ===
+                    "citykeeper_after"
+            );
+        }).length;
+
+
+    return {
+        id:
+            state.citykeeperId,
+
+        verified:
+            selectedContributions.length,
+
+        evidence:
+            evidenceCount,
+
+        joined:
+            joinedIds.length
+    };
+}
+
+
+function renderCitykeeperHall() {
+    const podium =
+        document.getElementById(
+            "citykeeperPodium"
+        );
+
+    const leaderboard =
+        document.getElementById(
+            "citykeeperLeaderboard"
+        );
+
+    if (
+        !podium ||
+        !leaderboard
+    ) {
+        return;
+    }
+
+    const entries =
+        Array.isArray(
+            citykeeperLeaderboardData
+        )
+            ? citykeeperLeaderboardData
+            : [];
+
+    const emptySlot = (
+        rank,
+        label
+    ) => `
+        <div
+            class="citykeeper-podium-slot empty rank-${rank}"
+        >
+            <span class="podium-rank">
+                0${rank}
+            </span>
+
+            <div class="podium-medallion">
+                <span>?</span>
+            </div>
+
+            <strong>
+                ${escapeHTML(label)}
+            </strong>
+
+            <small>
+                THIS PLACE IS EARNED
+            </small>
+
+            <i>
+                verified community impact only
+            </i>
+        </div>
+    `;
+
+    const podiumSlot = (
+        entry,
+        rank
+    ) => {
+        if (!entry) {
+            return emptySlot(
+                rank,
+                rank === 1
+                    ? "FIRST VERIFIED CITYKEEPER"
+                    : rank === 2
+                        ? "SECOND MARK"
+                        : "THIRD MARK"
+            );
+        }
+
+        const publicId =
+            String(
+                entry.public_user_id ||
+                "CITYKEEPER"
+            );
+
+        const medallion =
+            publicId
+                .replace(
+                    /^CK-/i,
+                    ""
+                )
+                .slice(
+                    -4
+                ) || "CF";
+
+        const current =
+            citykeeperCurrentUser &&
+            publicId ===
+                citykeeperCurrentUser
+                    .public_user_id;
+
+        return `
+            <div
+                class="
+                    citykeeper-podium-slot
+                    rank-${rank}
+                    occupied
+                    ${current ? "current" : ""}
+                "
+            >
+                <span class="podium-rank">
+                    0${rank}
+                </span>
+
+                <div class="podium-medallion">
+                    <span>
+                        ${escapeHTML(
+                            medallion
+                        )}
+                    </span>
+                </div>
+
+                <strong>
+                    ${escapeHTML(
+                        publicId
+                    )}
+                </strong>
+
+                <small>
+                    ${Number(
+                        entry.verified || 0
+                    )} VERIFIED ${
+                        Number(
+                            entry.verified || 0
+                        ) === 1
+                            ? "FIX"
+                            : "FIXES"
+                    }
+                </small>
+
+                <i>
+                    ${Number(
+                        entry.evidence || 0
+                    )} evidence record${
+                        Number(
+                            entry.evidence || 0
+                        ) === 1
+                            ? ""
+                            : "s"
+                    }
+                </i>
+            </div>
+        `;
+    };
+
+    if (!entries.length) {
+        podium.innerHTML = `
+            ${emptySlot(
+                2,
+                "SECOND MARK"
+            )}
+
+            <div
+                class="citykeeper-podium-slot empty rank-1"
+            >
+                <span class="podium-rank">
+                    01
+                </span>
+
+                <div class="podium-medallion">
+                    <span>CF</span>
+                </div>
+
+                <strong>
+                    FIRST VERIFIED CITYKEEPER
+                </strong>
+
+                <small>
+                    NO VERIFIED COMMUNITY FIX YET
+                </small>
+
+                <i>
+                    the first mark appears after
+                    citizen verification
+                </i>
+            </div>
+
+            ${emptySlot(
+                3,
+                "THIRD MARK"
+            )}
+        `;
+
+        leaderboard.innerHTML = `
+            <div class="citykeeper-leaderboard-empty">
+                <span>HALL / 000</span>
+            </div>
+        `;
+
+        return;
+    }
+
+    const first =
+        entries[0] || null;
+
+    const second =
+        entries[1] || null;
+
+    const third =
+        entries[2] || null;
+
+    podium.innerHTML = `
+        ${podiumSlot(
+            second,
+            2
+        )}
+
+        ${podiumSlot(
+            first,
+            1
+        )}
+
+        ${podiumSlot(
+            third,
+            3
+        )}
+    `;
+
+    leaderboard.innerHTML =
+        entries
+            .map(
+                (
+                    entry,
+                    index
+                ) => {
+                    const publicId =
+                        String(
+                            entry.public_user_id ||
+                            "CITYKEEPER"
+                        );
+
+                    const current =
+                        citykeeperCurrentUser &&
+                        publicId ===
+                            citykeeperCurrentUser
+                                .public_user_id;
+
+                    return `
+                        <div
+                            class="
+                                citykeeper-leaderboard-row
+                                ${current ? "current" : ""}
+                            "
+                        >
+                            <span>
+                                ${String(
+                                    index + 1
+                                ).padStart(
+                                    2,
+                                    "0"
+                                )}
+                            </span>
+
+                            <strong>
+                                ${escapeHTML(
+                                    publicId
+                                )}
+                            </strong>
+
+                            <i>
+                                ${Number(
+                                    entry.joined || 0
+                                )} joined
+                            </i>
+
+                            <b>
+                                ${Number(
+                                    entry.verified || 0
+                                )}
+                                VERIFIED IMPACT
+                            </b>
+                        </div>
+                    `;
+                }
+            )
+            .join("");
+}
+
+function citykeeperMissionDetailMarkup(complaint, state) {
+    const id = Number(complaint.complaint_id);
+    const key = String(id);
+
+    const joined = Boolean(state.joined[key]);
+
+
+    // =====================================================
+    // REAL CITYKEEPER EVIDENCE FROM BACKEND
+    // =====================================================
+
+    const evidenceList =
+        backendEvidenceCache.get(id) || [];
+
+    const backendContribution = latestCitykeeperEvidenceForComplaint(id);
+
+    const contribution = backendContribution
+        ? {
+            image: backendContribution.file_url
+                ? (
+                    backendContribution.file_url.startsWith("http")
+                        ? backendContribution.file_url
+                        : `${API_BASE_URL}${backendContribution.file_url}`
+                )
+                : "",
+
+            note:
+                backendContribution.description || "",
+
+            submittedAt:
+                backendContribution.uploaded_at,
+
+            hash:
+                backendContribution.file_hash,
+
+            evidenceId:
+                backendContribution.evidence_id
+        }
+        : null;
+
+
+    // =====================================================
+    // REAL CITYKEEPER VERIFICATION FROM BACKEND
+    // =====================================================
+
+    const verification =
+        citykeeperVerificationCache.get(id) || null;
+
+    const verifiedContribution = Boolean(
+        contribution &&
+        verification &&
+        Number(verification.evidence_id) === Number(contribution.evidenceId) &&
+        String(verification.decision).toLowerCase() === "verified"
+    );
+
+    const rejectedContribution = Boolean(
+        contribution &&
+        verification &&
+        Number(verification.evidence_id) === Number(contribution.evidenceId) &&
+        String(verification.decision).toLowerCase() === "rejected"
+    );
+
+
+    // =====================================================
+    // ORIGINAL CITIZEN / BEFORE EVIDENCE
+    // =====================================================
+
+    const image =
+        communityEvidenceImage(complaint);
+
+
+    // =====================================================
+    // MISSION INFORMATION
+    // =====================================================
+
+    const resources =
+        communityMissionResources(complaint);
+
+
+    // =====================================================
+    // ACTION BUTTON
+    // =====================================================
+
+    let actionLabel =
+        citykeeperCurrentUser
+            ? "BECOME A CITYKEEPER"
+            : "SIGN IN TO JOIN";
+
+    if (verifiedContribution) {
+        actionLabel =
+            "IMPACT VERIFIED ✓";
+    }
+    else if (rejectedContribution) {
+        actionLabel =
+            joined
+                ? "NEW PROOF NEEDED"
+                : (
+                    citykeeperCurrentUser
+                        ? "BECOME A CITYKEEPER"
+                        : "SIGN IN TO JOIN"
+                );
+    }
+    else if (contribution) {
+        actionLabel =
+            "EVIDENCE ON RECORD";
+    }
+    else if (joined) {
+        actionLabel =
+            "YOU'RE IN · MISSION ACTIVE";
+    }
+
+
+    // =====================================================
+    // CITYKEEPER-SPECIFIC STATUS
+    // =====================================================
+
+    let missionStatus =
+        "OPEN TO CITYKEEPERS";
+
+    if (verifiedContribution) {
+        missionStatus =
+            "VERIFIED IMPACT";
+    }
+    else if (rejectedContribution) {
+        missionStatus =
+            "EVIDENCE NOT VERIFIED";
+    }
+    else if (contribution) {
+        missionStatus =
+            "EVIDENCE · AWAITING VERIFICATION";
+    }
+    else if (joined) {
+        missionStatus =
+            "MISSION ACTIVE";
+    }
+
+
+    return `
+        <div class="citykeeper-detail-topline">
+
+            <div>
+                <small>
+                    COMMUNITY ACTION /
+                    ${escapeHTML(formatComplaintId(id))}
+                </small>
+
+                <span>
+                    ${escapeHTML(missionStatus)}
+                </span>
+            </div>
+
+            <button
+                type="button"
+                data-close-citykeeper-detail
+                aria-label="Close community mission"
+            >
+                ×
+            </button>
+
+        </div>
+
+
+        <div class="citykeeper-detail-hero">
+
+            <div
+                class="citykeeper-detail-media ${
+                    image ? "has-image" : ""
+                }"
+            >
+
+                ${
+                    image
+                        ? `
+                            <img
+                                src="${escapeHTML(image)}"
+                                alt="Citizen evidence for this complaint"
+                            >
+                        `
+                        : communityFallbackVisualMarkup(
+                            complaint
+                        )
+                }
+
+                <span class="detail-before-label">
+                    BEFORE / ORIGINAL FILE
+                </span>
+
+                <span
+                    class="detail-scan-line"
+                    aria-hidden="true"
+                ></span>
+
+            </div>
+
+
+            <div class="citykeeper-detail-copy">
+
+                <small>
+                    ${escapeHTML(
+                        communityMissionType(
+                            complaint
+                        )
+                    )}
+                </small>
+
+                <h3>
+                    ${escapeHTML(
+                        getCategoryName(
+                            complaint
+                        )
+                    )}
+                </h3>
+
+                <p class="citykeeper-detail-location">
+                    ${escapeHTML(
+                        publicLocation(
+                            complaint
+                        )
+                    )}
+                </p>
+
+                <p class="citykeeper-detail-description">
+                    ${escapeHTML(
+                        complaint.description ||
+                        "No public description recorded."
+                    )}
+                </p>
+
+
+                <div class="citykeeper-detail-facts">
+
+                    <div>
+                        <small>OPEN</small>
+
+                        <strong>
+                            ${escapeHTML(
+                                formatDuration(
+                                    complaintAgeMs(
+                                        complaint
+                                    )
+                                )
+                            )}
+                        </strong>
+                    </div>
+
+
+                    <div>
+                        <small>CITY</small>
+
+                        <strong>
+                            ${escapeHTML(
+                                getCityName(
+                                    complaint
+                                )
+                            )}
+                        </strong>
+                    </div>
+
+
+                    <div>
+                        <small>RECORD</small>
+
+                        <strong>
+                            ${escapeHTML(
+                                formatComplaintId(
+                                    id
+                                )
+                            )}
+                        </strong>
+                    </div>
+
+                </div>
+
+
+                <div class="citykeeper-resource-row">
+
+                    <small>
+                        WHAT THIS MISSION MAY NEED
+                    </small>
+
+                    <div>
+                        ${
+                            resources
+                                .map(
+                                    item =>
+                                        `<span>${
+                                            escapeHTML(
+                                                item
+                                            )
+                                        }</span>`
+                                )
+                                .join("")
+                        }
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <div class="citykeeper-boundary-note">
+
+            <span>
+                SAFE BOUNDARY
+            </span>
+
+            <p>
+                Citykeepers can support cleanup and
+                public-space care. Electrical work,
+                road repair, water systems, drainage,
+                and safety incidents stay with trained
+                authorities.
+            </p>
+
+        </div>
+
+
+        <div class="citykeeper-record-route">
+
+            <span class="done">
+
+                <i>01</i>
+
+                <b>REPORT</b>
+
+                <small>
+                    original file
+                </small>
+
+            </span>
+
+
+            <span
+                class="${
+                    joined
+                        ? "done"
+                        : "current"
+                }"
+            >
+
+                <i>02</i>
+
+                <b>PEOPLE JOIN</b>
+
+                <small>
+                    Citykeepers
+                </small>
+
+            </span>
+
+
+            <span
+                class="${
+                    contribution
+                        ? "done"
+                        : joined
+                            ? "current"
+                            : ""
+                }"
+            >
+
+                <i>03</i>
+
+                <b>ACTION</b>
+
+                <small>
+                    real-world help
+                </small>
+
+            </span>
+
+
+            <span
+                class="${
+                    contribution
+                        ? "done"
+                        : ""
+                }"
+            >
+
+                <i>04</i>
+
+                <b>EVIDENCE</b>
+
+                <small>
+                    after proof
+                </small>
+
+            </span>
+
+
+            <span
+                class="${
+                    verifiedContribution
+                        ? "done"
+                        : contribution
+                            ? "current"
+                            : ""
+                }"
+            >
+
+                <i>05</i>
+
+                <b>VERIFY</b>
+
+                <small>
+                    citizens decide
+                </small>
+
+            </span>
+
+        </div>
+
+
+        <div class="citykeeper-detail-actions">
+
+            <button
+                type="button"
+                class="citykeeper-join-button ${
+                    joined
+                        ? "joined"
+                        : ""
+                }"
+                data-citykeeper-join="${id}"
+                ${
+                    verifiedContribution ||
+                    joined ||
+                    (
+                        contribution &&
+                        !rejectedContribution
+                    )
+                        ? "disabled"
+                        : ""
+                }
+            >
+
+                ${escapeHTML(
+                    actionLabel
+                )}
+
+                <span>
+                    ${
+                        joined
+                            ? "✓"
+                            : "→"
+                    }
+                </span>
+
+            </button>
+
+
+            <button
+                type="button"
+                class="citykeeper-open-original"
+                data-citykeeper-original="${id}"
+            >
+
+                OPEN ORIGINAL CITYFILE
+
+                <span>
+                    ↗
+                </span>
+
+            </button>
+
+        </div>
+
+
+        ${
+            (
+                joined ||
+                contribution
+            )
+                ? `
+
+                    <div
+                        class="citykeeper-evidence-desk ${
+                            contribution
+                                ? "has-contribution"
+                                : ""
+                        }"
+                    >
+
+                        <div class="citykeeper-evidence-heading">
+
+                            <div>
+
+                                <small>
+                                    AFTER / COMMUNITY PROOF
+                                </small>
+
+                                <strong>
+                                    ${
+                                        verifiedContribution
+                                            ? "COMMUNITY IMPACT VERIFIED"
+                                            : rejectedContribution
+                                                ? "EVIDENCE WAS NOT VERIFIED"
+                                                : contribution
+                                                    ? "ACTION EVIDENCE IS ON YOUR TRAIL"
+                                                    : "SHOW WHAT CHANGED."
+                                    }
+                                </strong>
+
+                            </div>
+
+
+                            <span>
+                                ${
+                                    verifiedContribution
+                                        ? "CITIZEN VERIFIED"
+                                        : rejectedContribution
+                                            ? "NOT VERIFIED"
+                                            : contribution
+                                                ? "AWAITING VERIFICATION"
+                                                : "EVIDENCE REQUIRED"
+                                }
+                            </span>
+
+                        </div>
+
+
+                        ${
+                            contribution
+                                ? `
+
+                                    <div class="citykeeper-submitted-proof">
+
+                                        ${
+                                            contribution.image
+                                                ? `
+                                                    <img
+                                                        src="${escapeHTML(
+                                                            contribution.image
+                                                        )}"
+                                                        alt="Submitted Citykeeper action evidence"
+                                                    >
+                                                `
+                                                : ""
+                                        }
+
+
+                                        <div>
+
+                                            <small>
+                                                SUBMITTED ${
+                                                    escapeHTML(
+                                                        formatDate(
+                                                            contribution.submittedAt
+                                                        )
+                                                    )
+                                                }
+                                            </small>
+
+
+                                            <strong>
+                                                ${
+                                                    escapeHTML(
+                                                        contribution.note ||
+                                                        "Community action completed."
+                                                    )
+                                                }
+                                            </strong>
+
+
+                                            <span>
+                                                HASH / ${
+                                                    escapeHTML(
+                                                        contribution.hash ||
+                                                        "NO-HASH"
+                                                    )
+                                                }
+                                            </span>
+
+                                        </div>
+
+                                    </div>
+
+                                `
+                                : `
+
+                                    <form
+                                        id="citykeeperEvidenceForm"
+                                        class="citykeeper-evidence-form"
+                                        data-citykeeper-evidence-form="${id}"
+                                    >
+
+                                        <label
+                                            class="citykeeper-proof-drop"
+                                            for="citykeeperEvidenceImage"
+                                        >
+
+                                            <input
+                                                id="citykeeperEvidenceImage"
+                                                type="file"
+                                                accept="image/*"
+                                                capture="environment"
+                                                required
+                                            >
+
+                                            <span class="proof-drop-icon">
+                                                +
+                                            </span>
+
+                                            <strong>
+                                                ADD AFTER PHOTO
+                                            </strong>
+
+                                            <small>
+                                                Proof should show the same
+                                                public problem after community
+                                                action.
+                                            </small>
+
+                                        </label>
+
+
+                                        <div
+                                            id="citykeeperEvidencePreview"
+                                            class="citykeeper-evidence-preview"
+                                            hidden
+                                        >
+
+                                            <img
+                                                id="citykeeperEvidencePreviewImage"
+                                                alt="Citykeeper evidence preview"
+                                            >
+
+                                            <span>
+                                                AFTER / PREVIEW
+                                            </span>
+
+                                        </div>
+
+
+                                        <label class="citykeeper-note-field">
+
+                                            <span>
+                                                WHAT DID YOU DO?
+                                            </span>
+
+                                            <textarea
+                                                id="citykeeperActionNote"
+                                                rows="4"
+                                                placeholder="Example: Cleared ordinary litter around the park entrance and prepared it for collection."
+                                                required
+                                            ></textarea>
+
+                                        </label>
+
+
+                                        <button
+                                            type="submit"
+                                            class="citykeeper-submit-evidence"
+                                        >
+
+                                            PLACE ACTION ON YOUR TRAIL
+
+                                            <span>
+                                                →
+                                            </span>
+
+                                        </button>
+
+
+                                        <p class="citykeeper-form-note">
+                                            Your action photo, note and
+                                            evidence hash will be attached
+                                            to this civic record.
+                                        </p>
+
+                                    </form>
+
+                                `
+                        }
+
+                    </div>
+
+                `
+                : ""
+        }
+    `;
+}
+
+function citykeeperEvidenceFormMarkup(
+    complaintId,
+    {
+        resubmission = false
+    } = {}
+) {
+    const id =
+        Number(complaintId);
+
+    return `
+        <div
+            class="citykeeper-evidence-heading"
+            data-citykeeper-resubmit-heading="${id}"
+        >
+            <div>
+                <small>
+                    ${
+                        resubmission
+                            ? "RETRY / COMMUNITY PROOF"
+                            : "AFTER / COMMUNITY PROOF"
+                    }
+                </small>
+
+                <strong>
+                    ${
+                        resubmission
+                            ? "THE LAST PROOF WAS NOT VERIFIED. SHOW WHAT CHANGED NOW."
+                            : "SHOW WHAT CHANGED."
+                    }
+                </strong>
+            </div>
+
+            <span>
+                EVIDENCE REQUIRED
+            </span>
+        </div>
+
+        <form
+            id="citykeeperEvidenceForm"
+            class="citykeeper-evidence-form"
+            data-citykeeper-evidence-form="${id}"
+        >
+            <label
+                class="citykeeper-proof-drop"
+                for="citykeeperEvidenceImage"
+            >
+                <input
+                    id="citykeeperEvidenceImage"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    required
+                >
+
+                <span class="proof-drop-icon">
+                    +
+                </span>
+
+                <strong>
+                    ADD AFTER PHOTO
+                </strong>
+
+                <small>
+                    Proof should show the same
+                    public problem after community
+                    action.
+                </small>
+            </label>
+
+            <div
+                id="citykeeperEvidencePreview"
+                class="citykeeper-evidence-preview"
+                hidden
+            >
+                <img
+                    id="citykeeperEvidencePreviewImage"
+                    alt="Citykeeper evidence preview"
+                >
+
+                <span>
+                    AFTER / PREVIEW
+                </span>
+            </div>
+
+            <label class="citykeeper-note-field">
+                <span>
+                    WHAT DID YOU DO?
+                </span>
+
+                <textarea
+                    id="citykeeperActionNote"
+                    rows="4"
+                    placeholder="Example: Cleared ordinary litter around the park entrance and prepared it for collection."
+                    required
+                ></textarea>
+            </label>
+
+            <button
+                type="submit"
+                class="citykeeper-submit-evidence"
+            >
+                PLACE ACTION ON YOUR TRAIL
+
+                <span>
+                    →
+                </span>
+            </button>
+
+            <p class="citykeeper-form-note">
+                Your action photo, note and
+                evidence hash will be attached
+                to this civic record.
+            </p>
+        </form>
+    `;
+}
+
+
+function decorateCitykeeperMissionVerification(
+    complaint
+) {
+    const detail =
+        document.getElementById(
+            "citykeeperMissionDetail"
+        );
+
+    if (
+        !detail ||
+        !complaint
+    ) {
+        return;
+    }
+
+    const id =
+        Number(
+            complaint.complaint_id
+        );
+
+    const evidenceList =
+        backendEvidenceCache.get(
+            id
+        ) || [];
+
+    const evidence = latestCitykeeperEvidenceForComplaint(id);
+
+    if (!evidence) {
+        return;
+    }
+
+    const verification =
+        citykeeperVerificationCache.get(
+            id
+        ) || null;
+
+    const decision =
+        String(
+            verification?.decision || ""
+        ).toLowerCase();
+
+    const submittedProof =
+        detail.querySelector(
+            ".citykeeper-submitted-proof"
+        );
+
+    const evidenceDesk =
+        detail.querySelector(
+            ".citykeeper-evidence-desk"
+        );
+
+    if (
+        !submittedProof ||
+        !evidenceDesk
+    ) {
+        return;
+    }
+
+    detail
+        .querySelectorAll(
+            "[data-citykeeper-verification-controls], [data-citykeeper-resubmit]"
+        )
+        .forEach(
+            element =>
+                element.remove()
+        );
+
+    if (
+        decision === "verified"
+    ) {
+        return;
+    }
+
+    if (
+        decision === "rejected"
+    ) {
+        const state =
+            getCitykeeperState();
+
+        const joined =
+            Boolean(
+                state.joined[
+                    String(id)
+                ]
+            );
+
+        if (
+            !joined ||
+            !citykeeperCurrentUser
+        ) {
+            return;
+        }
+
+        const resubmit =
+            document.createElement(
+                "div"
+            );
+
+        resubmit.setAttribute(
+            "data-citykeeper-resubmit",
+            String(id)
+        );
+
+        resubmit.innerHTML =
+            citykeeperEvidenceFormMarkup(
+                id,
+                {
+                    resubmission: true
+                }
+            );
+
+        submittedProof.insertAdjacentElement(
+            "afterend",
+            resubmit
+        );
+
+        return;
+    }
+
+    const controls =
+        document.createElement(
+            "div"
+        );
+
+    controls.className =
+        "citykeeper-detail-actions";
+
+    controls.setAttribute(
+        "data-citykeeper-verification-controls",
+        String(id)
+    );
+
+    if (!citykeeperCurrentUser) {
+        controls.innerHTML = `
+            <button
+                type="button"
+                class="citykeeper-join-button"
+                data-citykeeper-auth
+            >
+                SIGN IN TO VERIFY
+                <span>→</span>
+            </button>
+        `;
+    }
+    else if (
+        Number(
+            evidence.uploaded_by_user
+        ) ===
+        Number(
+            citykeeperCurrentUser.user_id
+        )
+    ) {
+        controls.innerHTML = `
+            <button
+                type="button"
+                class="citykeeper-join-button joined"
+                disabled
+            >
+                ANOTHER CITIZEN MUST VERIFY
+                <span>○</span>
+            </button>
+        `;
+    }
+    else {
+        controls.innerHTML = `
+            <button
+                type="button"
+                class="citykeeper-join-button"
+                data-citykeeper-verify="verified"
+                data-citykeeper-verify-complaint="${id}"
+            >
+                YES · VERIFY IMPACT
+                <span>✓</span>
+            </button>
+
+            <button
+                type="button"
+                class="citykeeper-open-original"
+                data-citykeeper-verify="rejected"
+                data-citykeeper-verify-complaint="${id}"
+            >
+                NO · PROOF DOES NOT VERIFY
+                <span>↩</span>
+            </button>
+        `;
+    }
+
+    submittedProof.insertAdjacentElement(
+        "afterend",
+        controls
+    );
+}
+
+function openCitykeeperMission(complaintId) {
+    const id =
+        Number(
+            complaintId
+        );
+
+    const complaint =
+        allComplaints.find(
+            item =>
+                Number(
+                    item.complaint_id
+                ) === id
+        );
+
+    const detail =
+        document.getElementById(
+            "citykeeperMissionDetail"
+        );
+
+    if (
+        !complaint ||
+        !detail ||
+        !isCommunityEligible(
+            complaint
+        )
+    ) {
+        showToast(
+            "This record is not available as a community mission."
+        );
+
+        return;
+    }
+
+    activeCitykeeperMissionId =
+        id;
+
+    detail.hidden = false;
+
+    detail.innerHTML =
+        citykeeperMissionDetailMarkup(
+            complaint,
+            getCitykeeperState()
+        );
+
+    decorateCitykeeperMissionVerification(
+        complaint
+    );
+
+    detail.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+    });
+}
+
+function closeCitykeeperMission() {
+    const detail = document.getElementById("citykeeperMissionDetail");
+    if (!detail) return;
+    detail.hidden = true;
+    detail.innerHTML = "";
+    activeCitykeeperMissionId = null;
+}
+
+async function toggleCitykeeperJoin(complaintId) {
+    const id =
+        Number(
+            complaintId
+        );
+
+    if (!citykeeperCurrentUser) {
+        await openCitykeeperAuth();
+        return;
+    }
+
+    try {
+        const participation =
+            await fetchJSON(
+                `/citykeepers/${id}/join`,
+                {
+                    method: "POST"
+                }
+            );
+
+        await Promise.all([
+            loadCitykeeperParticipations(),
+            loadCitykeeperProfile(),
+            loadCitykeeperMissionStats(),
+            loadCitykeeperLeaderboard(),
+            loadMyComplaints()
+        ]);
+
+        if (
+            participation.already_joined
+        ) {
+            showToast(
+                "You're already part of this Citykeeper mission."
+            );
+        }
+        else {
+            showToast(
+                "You're in. Your participation is now on record."
+            );
+        }
+
+        renderCitykeepers();
+
+        if (
+            activeCitykeeperMissionId
+        ) {
+            openCitykeeperMission(
+                activeCitykeeperMissionId
+            );
+        }
+    }
+    catch (error) {
+        console.error(
+            "Could not join Citykeeper mission:",
+            error
+        );
+
+        if (
+            error?.status === 401
+        ) {
+            await openCitykeeperAuth();
+            return;
+        }
+
+        showToast(
+            error?.message ||
+            "Could not join this mission. Please try again."
+        );
+    }
+}
+
+async function hashCitykeeperEvidence(dataUrl) {
+    try {
+        if (crypto?.subtle && window.TextEncoder) {
+            const bytes = new TextEncoder().encode(dataUrl);
+            const digest = await crypto.subtle.digest("SHA-256", bytes);
+            return Array.from(new Uint8Array(digest))
+                .map(byte => byte.toString(16).padStart(2, "0"))
+                .join("")
+                .slice(0, 24)
+                .toUpperCase();
+        }
+    }
+    catch (error) {
+        console.warn("Could not hash Citykeeper evidence:", error);
+    }
+
+    let hash = 0;
+    for (let index = 0; index < dataUrl.length; index += 97) {
+        hash = ((hash << 5) - hash + dataUrl.charCodeAt(index)) | 0;
+    }
+    return `LOCAL-${Math.abs(hash).toString(16).toUpperCase().padStart(8, "0")}`;
+}
+
+
+async function submitCitykeeperEvidence(form) {
+    const id =
+        Number(
+            form.dataset
+                .citykeeperEvidenceForm ||
+            ""
+        );
+
+    const complaint =
+        allComplaints.find(
+            item =>
+                Number(
+                    item.complaint_id
+                ) === id
+        );
+
+    const fileInput =
+        form.querySelector(
+            "#citykeeperEvidenceImage"
+        );
+
+    const noteInput =
+        form.querySelector(
+            "#citykeeperActionNote"
+        );
+
+    const file =
+        fileInput?.files?.[0];
+
+    const note =
+        noteInput?.value.trim();
+
+    if (!citykeeperCurrentUser) {
+        await openCitykeeperAuth();
+        return;
+    }
+
+    if (
+        !complaint ||
+        !file ||
+        !note
+    ) {
+        showToast(
+            "Add an after photo and a short action note first."
+        );
+
+        return;
+    }
+
+    try {
+        const formData =
+            new FormData();
+
+        formData.append(
+            "file",
+            file
+        );
+
+        formData.append(
+            "description",
+            note
+        );
+
+        await fetchJSON(
+            `/citykeepers/${id}/evidence/upload`,
+            {
+                method: "POST",
+                body: formData
+            }
+        );
+
+        await Promise.all([
+            loadBackendEvidence(
+                id
+            ),
+            loadCitykeeperVerification(
+                id
+            ),
+            loadCitykeeperParticipations(),
+            loadCitykeeperProfile(),
+            loadCitykeeperMissionStats(),
+            loadCitykeeperLeaderboard()
+        ]);
+
+        showToast(
+            "Community evidence added. Another citizen must verify it."
+        );
+
+        renderCitykeepers();
+
+        openCitykeeperMission(
+            id
+        );
+    }
+    catch (error) {
+        console.error(
+            "Citykeeper evidence upload error:",
+            error
+        );
+
+        if (
+            error?.status === 401
+        ) {
+            await openCitykeeperAuth();
+            return;
+        }
+
+        showToast(
+            error?.message ||
+            "Could not upload the community evidence."
+        );
+    }
+}
+
+
+async function verifyCitykeeperEvidence(
+    complaintId,
+    decision
+) {
+    const id =
+        Number(
+            complaintId
+        );
+
+    if (!citykeeperCurrentUser) {
+        await openCitykeeperAuth();
+        return;
+    }
+
+    const normalized =
+        String(
+            decision || ""
+        ).toLowerCase();
+
+    if (
+        ![
+            "verified",
+            "rejected"
+        ].includes(
+            normalized
+        )
+    ) {
+        return;
+    }
+
+    try {
+        const result =
+            await fetchJSON(
+                `/citykeepers/${id}/verify?decision=${encodeURIComponent(
+                    normalized
+                )}`,
+                {
+                    method: "POST"
+                }
+            );
+
+        await Promise.all([
+            loadBackendEvidence(
+                id
+            ),
+            loadCitykeeperVerification(
+                id
+            ),
+            loadCitykeeperProfile(),
+            loadCitykeeperMissionStats(),
+            loadCitykeeperLeaderboard()
+        ]);
+
+        if (
+            result?.already_decided
+        ) {
+            showToast(
+                "This evidence already has a citizen decision on record."
+            );
+        }
+        else if (
+            normalized ===
+            "verified"
+        ) {
+            showToast(
+                "Community impact verified. The decision is now on record."
+            );
+        }
+        else {
+            showToast(
+                "Proof was not verified. The mission can receive new evidence."
+            );
+        }
+
+        renderCitykeepers();
+
+        openCitykeeperMission(
+            id
+        );
+    }
+    catch (error) {
+        console.error(
+            "Citykeeper verification error:",
+            error
+        );
+
+        if (
+            error?.status === 401
+        ) {
+            await openCitykeeperAuth();
+            return;
+        }
+
+        showToast(
+            error?.message ||
+            "Could not record that verification."
+        );
+    }
+}
+
+function renderCitykeepers() {
+    if (
+        !document.getElementById(
+            "citykeepersView"
+        )
+    ) {
+        return;
+    }
+
+    const yourMarkSection =
+        document.getElementById(
+            "citykeeperYourMark"
+        );
+
+    if (yourMarkSection) {
+        yourMarkSection.classList.toggle(
+            "citykeeper-signed-out",
+            !citykeeperCurrentUser
+        );
+
+        yourMarkSection.classList.toggle(
+            "citykeeper-signed-in",
+            Boolean(citykeeperCurrentUser)
+        );
+    }
+
+    renderCitykeeperAuthButton();
+
+    const state =
+        getCitykeeperState();
+
+    renderCitykeeperMissions(
+        state
+    );
+
+
+renderCitykeeperVerifiedImpact();
+renderCitykeeperProfile(state);
+renderCitykeeperHall(state);
+
+    if (
+        activeCitykeeperMissionId
+    ) {
+        const complaint =
+            allComplaints.find(
+                item =>
+                    Number(
+                        item.complaint_id
+                    ) ===
+                    Number(
+                        activeCitykeeperMissionId
+                    )
+            );
+
+        const detail =
+            document.getElementById(
+                "citykeeperMissionDetail"
+            );
+
+        if (
+            complaint &&
+            detail &&
+            !detail.hidden &&
+            isCommunityEligible(
+                complaint
+            )
+        ) {
+            detail.innerHTML =
+                citykeeperMissionDetailMarkup(
+                    complaint,
+                    state
+                );
+
+            decorateCitykeeperMissionVerification(
+                complaint
+            );
+        }
+        else if (detail) {
+            closeCitykeeperMission();
+        }
+    }
+}
+
+function initializeCitykeepers() {
+    const view =
+        document.getElementById(
+            "citykeepersView"
+        );
+
+    if (!view) {
+        return;
+    }
+
+    view.addEventListener(
+        "click",
+        async event => {
+            const authButton =
+                event.target.closest(
+                    "[data-citykeeper-auth]"
+                );
+
+            if (authButton) {
+                await openCitykeeperAuth();
+                return;
+            }
+
+            const jump =
+                event.target.closest(
+                    "[data-citykeepers-jump]"
+                );
+
+            if (jump) {
+                const target =
+                    jump.dataset
+                        .citykeepersJump ===
+                    "mark"
+                        ? document.getElementById(
+                            "citykeeperYourMark"
+                        )
+                        : document.getElementById(
+                            "citykeeperMissions"
+                        );
+
+                target?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start"
+                });
+
+                return;
+            }
+
+            const openButton =
+                event.target.closest(
+                    "[data-open-citykeeper-mission]"
+                );
+
+            if (openButton) {
+                openCitykeeperMission(
+                    openButton.dataset
+                        .openCitykeeperMission
+                );
+
+                return;
+            }
+
+            const closeButton =
+                event.target.closest(
+                    "[data-close-citykeeper-detail]"
+                );
+
+            if (closeButton) {
+                closeCitykeeperMission();
+                return;
+            }
+
+            const joinButton =
+                event.target.closest(
+                    "[data-citykeeper-join]"
+                );
+
+            if (joinButton) {
+                await toggleCitykeeperJoin(
+                    joinButton.dataset
+                        .citykeeperJoin
+                );
+
+                return;
+            }
+
+            const verifyButton =
+                event.target.closest(
+                    "[data-citykeeper-verify]"
+                );
+
+            if (verifyButton) {
+                await verifyCitykeeperEvidence(
+                    verifyButton.dataset
+                        .citykeeperVerifyComplaint,
+                    verifyButton.dataset
+                        .citykeeperVerify
+                );
+
+                return;
+            }
+
+            const originalButton =
+                event.target.closest(
+                    "[data-citykeeper-original]"
+                );
+
+            if (originalButton) {
+                openCase(
+                    Number(
+                        originalButton.dataset
+                            .citykeeperOriginal
+                    )
+                );
+
+                return;
+            }
+
+            const hallTab =
+                event.target.closest(
+                    "[data-hall-period]"
+                );
+
+            if (hallTab) {
+                citykeeperHallPeriod =
+                    hallTab.dataset
+                        .hallPeriod ===
+                    "all"
+                        ? "all"
+                        : "month";
+
+                view
+                    .querySelectorAll(
+                        "[data-hall-period]"
+                    )
+                    .forEach(
+                        button => {
+                            const active =
+                                button.dataset
+                                    .hallPeriod ===
+                                citykeeperHallPeriod;
+
+                            button.classList.toggle(
+                                "active",
+                                active
+                            );
+
+                            button.setAttribute(
+                                "aria-pressed",
+                                active
+                                    ? "true"
+                                    : "false"
+                            );
+                        }
+                    );
+
+                await loadCitykeeperLeaderboard();
+                renderCitykeeperHall();
+
+                return;
+            }
+        }
+    );
+
+    view.addEventListener(
+        "keydown",
+        async event => {
+            const authButton = event.target.closest(
+                "[data-citykeeper-auth][role=\"button\"]"
+            );
+
+            if (
+                authButton &&
+                (event.key === "Enter" || event.key === " ")
+            ) {
+                event.preventDefault();
+                await openCitykeeperAuth();
+            }
+        }
+    );
+
+
+    view.addEventListener(
+        "change",
+        async event => {
+            const input =
+                event.target.closest(
+                    "#citykeeperEvidenceImage"
+                );
+
+            if (
+                !input?.files?.[0]
+            ) {
+                return;
+            }
+
+            try {
+                const image =
+                    await compressAuthorityImage(
+                        input.files[0],
+                        1200,
+                        0.7
+                    );
+
+                const form =
+                    input.closest(
+                        "[data-citykeeper-evidence-form]"
+                    );
+
+                const preview =
+                    form?.querySelector(
+                        "#citykeeperEvidencePreview"
+                    ) ||
+                    document.getElementById(
+                        "citykeeperEvidencePreview"
+                    );
+
+                const previewImage =
+                    form?.querySelector(
+                        "#citykeeperEvidencePreviewImage"
+                    ) ||
+                    document.getElementById(
+                        "citykeeperEvidencePreviewImage"
+                    );
+
+                if (
+                    preview &&
+                    previewImage
+                ) {
+                    previewImage.src =
+                        image;
+
+                    preview.hidden =
+                        false;
+                }
+            }
+            catch (error) {
+                console.error(
+                    "Citykeeper preview error:",
+                    error
+                );
+
+                showToast(
+                    "Could not preview that image."
+                );
+            }
+        }
+    );
+
+    view.addEventListener(
+        "submit",
+        event => {
+            const form =
+                event.target.closest(
+                    "[data-citykeeper-evidence-form]"
+                );
+
+            if (!form) {
+                return;
+            }
+
+            event.preventDefault();
+
+            submitCitykeeperEvidence(
+                form
+            );
+        }
+    );
+}
+
+
 /* ============================================================
    LOAD DATA + HOME
    ============================================================ */
-
-async function loadComplaints({ silent = false } = {}) {
+async function loadComplaints({
+    silent = false
+} = {}) {
     try {
-        const [complaints, blockchain] = await Promise.all([
+        const [complaints, blockchainPayload] = await Promise.all([
             fetchJSON("/complaints"),
             fetchJSON("/blockchain")
         ]);
@@ -732,18 +6054,19 @@ async function loadComplaints({ silent = false } = {}) {
             ? complaints
             : [];
 
-        const blocks = Array.isArray(blockchain)
-            ? blockchain
-            : [];
+        // Support both the older array response and the newer integrity object.
+        const blocks = Array.isArray(blockchainPayload)
+            ? blockchainPayload
+            : (Array.isArray(blockchainPayload?.blocks)
+                ? blockchainPayload.blocks
+                : []);
 
-        // Clear old blockchain hash data
         blockchainHashesByComplaintId = new Map();
 
-        // Store blockchain hash against each complaint ID
         blocks.forEach((block) => {
             if (
-                block.complaint_id != null &&
-                block.hash
+                block?.complaint_id != null &&
+                block?.hash
             ) {
                 blockchainHashesByComplaintId.set(
                     Number(block.complaint_id),
@@ -752,10 +6075,10 @@ async function loadComplaints({ silent = false } = {}) {
             }
         });
 
-        // Add blockchain hash to each complaint
+        // Preserve complaint serialization from the newer backend while also
+        // retaining the remote branch's blockchain hash lookup.
         allComplaints = complaintList.map((complaint) => {
             const complaintId = Number(complaint.complaint_id);
-
             const blockchainHash =
                 blockchainHashesByComplaintId.get(complaintId);
 
@@ -769,17 +6092,58 @@ async function loadComplaints({ silent = false } = {}) {
             };
         });
 
-        // Refresh all frontend sections
+        // Complaint serialization already includes evidence, so reuse it
+        // instead of making one extra evidence request per complaint.
+        for (const complaint of allComplaints) {
+            backendEvidenceCache.set(
+                Number(complaint.complaint_id),
+                Array.isArray(complaint.evidence)
+                    ? complaint.evidence
+                    : []
+            );
+        }
+
+        // Citykeeper verification is only relevant for community-safe files.
+        await Promise.all(
+            allComplaints
+                .filter(isCommunityEligible)
+                .map((complaint) =>
+                    loadCitykeeperVerification(
+                        complaint.complaint_id
+                    )
+                )
+        );
+
+        // Load backend-driven Citykeeper state.
+        await Promise.all([
+            loadCitykeeperParticipations(),
+            loadCitykeeperProfile(),
+            loadCitykeeperMissionStats(),
+            loadCitykeeperLeaderboard(),
+            loadMyComplaints()
+        ]);
+
         updateHomeMetrics();
         renderHomeProblemFiles();
         renderArchive();
         renderMapMarkers();
         renderProfileFiles();
         renderIntegrityEvents();
+        renderAuthorityDashboard();
+        renderCitykeepers();
+
+        const openOverlay = document.getElementById("caseOverlay");
+        if (
+            currentCaseComplaintId &&
+            openOverlay &&
+            !openOverlay.hidden
+        ) {
+            openCase(currentCaseComplaintId);
+        }
 
         return allComplaints;
-
-    } catch (error) {
+    }
+    catch (error) {
         console.error("Complaint loading error:", error);
 
         if (!silent) {
@@ -791,7 +6155,6 @@ async function loadComplaints({ silent = false } = {}) {
         return [];
     }
 }
-   
 
 
 function startDataRefresh() {
@@ -1039,6 +6402,8 @@ function lifecycleStates(
             "in progress",
             "in_progress",
             "working",
+            "awaiting verification",
+            "disputed",
             "resolved",
             "verified"
         ].includes(
@@ -2152,90 +7517,15 @@ function extractCoordinates(
 }
 
 
-function deterministicOffset(id) {
-    const text =
-        String(
-            id ?? "0"
-        );
+function complaintCoordinates(complaint) {
+    const latitude = Number(complaint?.latitude);
+    const longitude = Number(complaint?.longitude);
 
-    let hash = 0;
-
-    for (
-        const char of text
-    ) {
-        hash =
-            (
-                (
-                    hash * 31
-                ) +
-                char.charCodeAt(0)
-            )
-            >>> 0;
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        return [latitude, longitude];
     }
 
-    return [
-        (
-            (
-                hash % 1000
-            )
-            / 1000
-            - .5
-        )
-        * .09,
-
-        (
-            (
-                (
-                    hash >> 8
-                )
-                % 1000
-            )
-            / 1000
-            - .5
-        )
-        * .09
-    ];
-}
-
-
-function complaintCoordinates(
-    complaint
-) {
-    const exact =
-        extractCoordinates(
-            complaint
-        );
-
-    if (exact) {
-        return exact;
-    }
-
-    const center =
-        CITY_CENTERS[
-            getCityName(
-                complaint
-            )
-                .trim()
-                .toLowerCase()
-        ]
-        ||
-        CITY_CENTERS.delhi;
-
-    const [
-        latOffset,
-        lngOffset
-    ] =
-        deterministicOffset(
-            complaint.complaint_id
-        );
-
-    return [
-        center[0] +
-        latOffset,
-
-        center[1] +
-        lngOffset
-    ];
+    return extractCoordinates(complaint);
 }
 
 
@@ -2277,17 +7567,13 @@ function renderMapMarkers() {
     const records =
         currentUnresolvedComplaints()
             .filter(
-                complaint => {
-                    return (
-                        activeMapFilter ===
-                        "all"
-                        ||
-                        issueGroup(
-                            complaint
-                        ) ===
-                        activeMapFilter
-                    );
-                }
+                complaint => (
+                    activeMapFilter === "all" ||
+                    issueGroup(complaint) === activeMapFilter
+                )
+            )
+            .filter(
+                complaint => Boolean(complaintCoordinates(complaint))
             );
 
     const visible =
@@ -2309,7 +7595,7 @@ function renderMapMarkers() {
         message.textContent =
             records.length
                 ? ""
-                : "No unresolved records match this filter.";
+                : "No unresolved records with stored coordinates match this filter.";
     }
 
     records.forEach(
@@ -2722,233 +8008,47 @@ function initializeEvidencePreview() {
 }
 
 
-function saveMyComplaintId(id) {
-    let ids = [];
-
-    try {
-        const parsed =
-            JSON.parse(
-                localStorage.getItem(
-                    "cityfile_my_complaints"
-                ) || "[]"
-            );
-
-        ids =
-            Array.isArray(parsed)
-                ? parsed.map(String)
-                : [];
-    }
-    catch {
-        ids = [];
-    }
-
-    const value =
-        String(id);
-
-    if (
-        !ids.includes(
-            value
-        )
-    ) {
-        ids.unshift(
-            value
-        );
-    }
-
-    localStorage.setItem(
-        "cityfile_my_complaints",
-        JSON.stringify(ids)
-    );
+function saveMyComplaintId() {
+    // Deprecated: YOUR FILES ownership comes from Clerk + complaint.user_id.
+    return true;
 }
 
 
 function getReporterPayload() {
-    const name =
-        document
-            .getElementById(
-                "reporterName"
-            )
-            ?.value
-            .trim()
-        || "";
-
-    const email =
-        document
-            .getElementById(
-                "reporterEmail"
-            )
-            ?.value
-            .trim()
-        || "";
-
-    const phone =
-        document
-            .getElementById(
-                "reporterPhone"
-            )
-            ?.value
-            .trim()
-        || "";
-
     return {
-        name,
-        email,
-        phone
+        name: document.getElementById("name")?.value.trim() || "",
+        email: document.getElementById("email")?.value.trim() || "",
+        phone: document.getElementById("phone")?.value.trim() || "",
+        publicUserId: document.getElementById("userId")?.value.trim() || ""
     };
 }
-
 
 async function createReporterIfNeeded() {
-    const reporter =
-        getReporterPayload();
-
-    /*
-       CITYFILE can keep the public complaint
-       anonymous even if the backend requires
-       an internal user record.
-
-       We only send fields that the current
-       backend form provides.
-    */
-
-    if (
-        !reporter.name &&
-        !reporter.email &&
-        !reporter.phone
-    ) {
-        return null;
-    }
-
-    const payload = {};
-
-    if (reporter.name) {
-        payload.name =
-            reporter.name;
-    }
-
-    if (reporter.email) {
-        payload.email =
-            reporter.email;
-    }
-
-    if (reporter.phone) {
-        payload.phone =
-            reporter.phone;
-    }
-
-    try {
-        return await fetchJSON(
-            "/users",
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body:
-                    JSON.stringify(
-                        payload
-                    )
-            }
-        );
-    }
-    catch (error) {
-        console.warn(
-            "Could not create reporter:",
-            error
-        );
-
-        /*
-           Some backend versions do not require
-           a separate reporter record. Complaint
-           submission should still be attempted.
-        */
-
-        return null;
-    }
+    // Reporter contact is now submitted atomically with the complaint and
+    // stored in the backend's private complaint_reporters table.
+    return getReporterPayload();
 }
 
+function buildComplaintPayload(reporter = {}) {
+    const city = document.getElementById("city");
+    const category = document.getElementById("category");
+    const department = document.getElementById("department");
+    const description = document.getElementById("description");
+    const priority = document.getElementById("priority");
 
-function buildComplaintPayload(
-    reporter
-) {
-    const city =
-        document.getElementById(
-            "city"
-        );
-
-    const category =
-        document.getElementById(
-            "category"
-        );
-
-    const department =
-        document.getElementById(
-            "department"
-        );
-
-    const description =
-        document.getElementById(
-            "description"
-        );
-
-    const priority =
-        document.getElementById(
-            "priority"
-        );
-
-    const payload = {
-        city_id:
-            Number(
-                city?.value
-            ),
-
-        category_id:
-            Number(
-                category?.value
-            ),
-
-        department_id:
-            Number(
-                department?.value
-            ),
-
-        location:
-            locationPayloadFromForm(),
-
-        description:
-            description?.value
-                ?.trim()
-            || "",
-
-        priority:
-            priority?.value ||
-            "Normal"
+    return {
+        city_id: Number(city?.value),
+        category_id: Number(category?.value),
+        department_id: Number(department?.value),
+        location: locationPayloadFromForm(),
+        description: description?.value?.trim() || "",
+        priority: priority?.value || "Medium",
+        reporter_name: reporter.name || null,
+        reporter_email: reporter.email || null,
+        reporter_phone: reporter.phone || null,
+        reporter_public_user_id: reporter.publicUserId || null
     };
-
-    /*
-       Preserve compatibility with backend
-       versions that return user_id/id from
-       POST /users.
-    */
-
-    const reporterId =
-        reporter?.user_id ??
-        reporter?.id ??
-        null;
-
-    if (
-        reporterId !== null
-    ) {
-        payload.user_id =
-            Number(reporterId);
-    }
-
-    return payload;
 }
-
 
 function validateComplaintPayload(
     payload
@@ -3044,6 +8144,8 @@ function showSubmissionSuccess(
 
         return;
     }
+
+    result.hidden = false;
 
     result.innerHTML = `
         <div class="submission-success">
@@ -3145,11 +8247,9 @@ async function submitComplaint(
             );
 
     if (submitButton) {
-        submitButton.disabled =
-            true;
+        submitButton.disabled = true;
 
-        submitButton.dataset
-            .originalText =
+        submitButton.dataset.originalText =
             submitButton.textContent;
 
         submitButton.textContent =
@@ -3157,6 +8257,10 @@ async function submitComplaint(
     }
 
     try {
+        const evidenceFile =
+            document.getElementById("evidence")
+                ?.files?.[0] || null;
+
         const reporter =
             await createReporterIfNeeded();
 
@@ -3178,6 +8282,7 @@ async function submitComplaint(
             return;
         }
 
+        // 1. Create the complaint first
         const complaint =
             await fetchJSON(
                 "/complaints",
@@ -3196,6 +8301,7 @@ async function submitComplaint(
                 }
             );
 
+        // 2. Save complaint ID
         if (
             complaint?.complaint_id !==
             undefined
@@ -3203,8 +8309,32 @@ async function submitComplaint(
             saveMyComplaintId(
                 complaint.complaint_id
             );
+
+            // 3. Upload original citizen image. The complaint itself has
+            // already been committed, so an image failure is reported as a
+            // partial success rather than pretending the record vanished.
+            if (evidenceFile) {
+                const formData = new FormData();
+                formData.append("file", evidenceFile);
+                formData.append("evidence_type", "citizen_report");
+                formData.append("description", "Original citizen evidence");
+
+                try {
+                    await fetchJSON(
+                        `/complaints/${complaint.complaint_id}/evidence/upload`,
+                        { method: "POST", body: formData }
+                    );
+                }
+                catch (evidenceError) {
+                    console.error("Citizen evidence upload error:", evidenceError);
+                    showToast(
+                        `Record ${formatComplaintId(complaint.complaint_id)} was created, but the evidence photo could not be uploaded.`
+                    );
+                }
+            }
         }
 
+        // 4. Reset UI after everything succeeds
         resetComplaintForm();
 
         showSubmissionSuccess(
@@ -3239,7 +8369,6 @@ async function submitComplaint(
     }
 }
 
-
 function initializeComplaintForm() {
     document
         .getElementById(
@@ -3252,7 +8381,7 @@ function initializeComplaintForm() {
 
     document
         .getElementById(
-            "useMyLocation"
+            "useLocationButton"
         )
         ?.addEventListener(
             "click",
@@ -3261,7 +8390,7 @@ function initializeComplaintForm() {
 
     document
         .getElementById(
-            "clearReportPin"
+            "clearPinButton"
         )
         ?.addEventListener(
             "click",
@@ -3293,6 +8422,49 @@ function parseComplaintId(value) {
     return Number.isFinite(id)
         ? id
         : null;
+}
+
+function lifecycleTimestamp(complaint, index, step) {
+    if (index === 0) return formatDate(complaint.created_at);
+    if (step?.state === "waiting") return "RECORD ABSENT";
+
+    const updates = Array.isArray(complaint?.updates) ? complaint.updates : [];
+    const attempts = Array.isArray(complaint?.resolution_attempts)
+        ? complaint.resolution_attempts
+        : [];
+    const latestAttempt = attempts.length ? attempts[attempts.length - 1] : null;
+
+    if (index === 1) {
+        const update = updates.find(item =>
+            ["acknowledged", "in progress", "awaiting verification", "verified", "disputed"]
+                .includes(String(item?.status || "").trim().toLowerCase())
+        );
+        return update?.updated_at ? formatDate(update.updated_at) : "RECORDED";
+    }
+
+    if (index === 2) {
+        const update = updates.find(item =>
+            ["in progress", "awaiting verification", "verified", "disputed"]
+                .includes(String(item?.status || "").trim().toLowerCase())
+        );
+        return update?.updated_at ? formatDate(update.updated_at) : "RECORDED";
+    }
+
+    if (index === 3) {
+        const proof = latestAttempt?.proof;
+        return proof?.capturedAt || proof?.created_at
+            ? formatDate(proof.capturedAt || proof.created_at)
+            : "RECORDED";
+    }
+
+    if (index === 4) {
+        const review = latestAttempt?.review;
+        return review?.timestamp || review?.created_at
+            ? formatDate(review.timestamp || review.created_at)
+            : "RECORDED";
+    }
+
+    return "RECORDED";
 }
 
 async function trackComplaint() {
@@ -3341,6 +8513,8 @@ async function trackComplaint() {
         const complaint = await fetchJSON(
             `/complaints/${id}`
         );
+
+        upsertComplaintRecord(complaint);
 
         const states = lifecycleStates(complaint);
 
@@ -3520,17 +8694,11 @@ async function trackComplaint() {
 
 
                                     const timestamp =
-                                        index === 0
-
-                                            ? formatDate(
-                                                complaint.created_at
-                                            )
-
-                                            : step.state === "waiting"
-
-                                                ? "RECORD ABSENT"
-
-                                                : "RECORDED";
+                                        lifecycleTimestamp(
+                                            complaint,
+                                            index,
+                                            step
+                                        );
 
 
                                     return `
@@ -3931,14 +9099,14 @@ async function trackComplaint() {
 
                                             <button
                                                 type="button"
-                                                data-verification-info
+                                                data-verification-action="verified"
                                             >
                                                 YES ✓
                                             </button>
 
                                             <button
                                                 type="button"
-                                                data-verification-info
+                                                data-verification-action="reopened"
                                             >
                                                 NO ✕
                                             </button>
@@ -4252,54 +9420,22 @@ async function trackComplaint() {
 
 
         /* =====================================================
-           EXISTING CITIZEN VERIFICATION PLACEHOLDER
+           CITIZEN VERIFICATION — BACKEND PERSISTED
            ===================================================== */
 
         result
-            .querySelectorAll(
-                "[data-verification-info]"
-            )
-            .forEach(
-                button => {
-
-                    button.addEventListener(
-                        "click",
-                        () => {
-
-                            showToast(
-                                "Citizen verification needs a backend verification endpoint before it can change the record."
-                            );
-
-                        }
+            .querySelectorAll("[data-verification-action]")
+            .forEach(button => {
+                button.addEventListener("click", async () => {
+                    await reviewAuthorityResolution(
+                        complaint.complaint_id,
+                        button.dataset.verificationAction
                     );
-
-                }
-            );
-
+                });
+            });
 
 
-        /* =====================================================
-           EXISTING LOCAL COMPLAINT CACHE
-           ===================================================== */
-
-        if (
-            !allComplaints.some(
-                item =>
-                    Number(
-                        item.complaint_id
-                    )
-                    ===
-                    Number(
-                        complaint.complaint_id
-                    )
-            )
-        ) {
-
-            allComplaints.push(
-                complaint
-            );
-
-        }
+        /* The fetched record was already merged into the shared cache. */
 
     }
 
@@ -4375,53 +9511,30 @@ function initializeTracking() {
    YOUR FILES — CIVIC FOOTPRINT
    ============================================================ */
 
-function getMyComplaintIds() {
-    try {
-        const parsed =
-            JSON.parse(
-                localStorage.getItem(
-                    "cityfile_my_complaints"
-                ) || "[]"
-            );
-
-        return Array.isArray(
-            parsed
-        )
-            ? parsed.map(String)
-            : [];
+async function loadMyComplaints() {
+    if (!citykeeperAuthEnabled || !citykeeperCurrentUser) {
+        myComplaints = [];
+        return myComplaints;
     }
-    catch {
+
+    try {
+        const records = await fetchJSON("/me/complaints");
+        myComplaints = Array.isArray(records) ? records : [];
+        return myComplaints;
+    }
+    catch (error) {
+        console.warn("Could not load authenticated complaint history:", error);
+        myComplaints = [];
         return [];
     }
 }
 
-
 function getMyComplaints() {
-    const savedIds =
-        getMyComplaintIds();
-
-    return allComplaints
-        .filter(
-            complaint =>
-                savedIds.includes(
-                    String(
-                        complaint.complaint_id
-                    )
-                )
-        )
-        .sort(
-            (a, b) =>
-                (
-                    Date.parse(
-                        b.created_at || ""
-                    ) || 0
-                )
-                -
-                (
-                    Date.parse(
-                        a.created_at || ""
-                    ) || 0
-                )
+    return myComplaints
+        .slice()
+        .sort((a, b) =>
+            (Date.parse(b.created_at || "") || 0) -
+            (Date.parse(a.created_at || "") || 0)
         );
 }
 
@@ -4522,6 +9635,32 @@ function renderProfileFiles() {
     if (detail) {
         detail.hidden = true;
         detail.innerHTML = "";
+    }
+
+    if (citykeeperAuthEnabled && !citykeeperCurrentUser) {
+        grid.innerHTML = `
+            <div class="semantic-empty profile-empty" style="grid-column:1/-1">
+                <strong>SIGN IN TO SEE YOUR FILES.</strong>
+                <p>Your civic footprint is tied to your authenticated CITYFILE account, not this browser.</p>
+                <button type="button" id="profileSignInButton">SIGN IN →</button>
+            </div>
+        `;
+
+        grid.querySelector("#profileSignInButton")?.addEventListener(
+            "click",
+            openCitykeeperAuth
+        );
+        return;
+    }
+
+    if (!citykeeperAuthEnabled) {
+        grid.innerHTML = `
+            <div class="semantic-empty profile-empty" style="grid-column:1/-1">
+                <strong>ACCOUNT HISTORY IS NOT CONFIGURED.</strong>
+                <p>Configure Clerk to make YOUR FILES account-scoped and persistent across browsers.</p>
+            </div>
+        `;
+        return;
     }
 
     if (!myComplaints.length) {
@@ -4829,10 +9968,10 @@ function renderFootprintDetail(
                         </strong>
 
                         <p>
-                            The authority has marked
-                            this problem resolved.
-                            Your verification is the
-                            final accountability step.
+                            The authority submitted public
+                            resolution evidence. Review the
+                            before/after proof before deciding
+                            whether the issue is actually fixed.
                         </p>
 
                         <div
@@ -4853,16 +9992,18 @@ function renderFootprintDetail(
 
                             <button
                                 type="button"
-                                data-profile-verification
+                                class="profile-verify-resolution"
+                                data-open-citizen-verification
                             >
-                                VERIFY ✓
+                                VERIFY RESOLUTION →
                             </button>
 
                             <button
                                 type="button"
-                                data-profile-verification
+                                class="profile-view-proof"
+                                data-open-authority-proof
                             >
-                                STILL BROKEN ✕
+                                VIEW AUTHORITY PROOF
                             </button>
 
                         </div>
@@ -4977,18 +10118,27 @@ function renderFootprintDetail(
         );
 
     detail
-        .querySelectorAll(
-            "[data-profile-verification]"
+        .querySelector(
+            "[data-open-citizen-verification]"
         )
-        .forEach(
-            button => {
-                button.addEventListener(
-                    "click",
-                    () => {
-                        showToast(
-                            "Citizen verification needs a backend verification endpoint before it can change the public record."
-                        );
-                    }
+        ?.addEventListener(
+            "click",
+            () => {
+                openCitizenVerification(
+                    complaint.complaint_id
+                );
+            }
+        );
+
+    detail
+        .querySelector(
+            "[data-open-authority-proof]"
+        )
+        ?.addEventListener(
+            "click",
+            () => {
+                openCase(
+                    complaint.complaint_id
                 );
             }
         );
@@ -5002,6 +10152,13 @@ function renderFootprintDetail(
    ============================================================ */
 
 function statusExplanation(complaint) {
+    if (isCitizenReopened(complaint)) {
+        return (
+            "A citizen challenged the latest authority resolution. " +
+            "The complaint is back in the authority action queue, and the earlier resolution attempt remains public."
+        );
+    }
+
     if (isVerified(complaint)) {
         return (
             "Citizens verified the real-world fix. " +
@@ -5044,7 +10201,7 @@ function blockchainStateMarkup(complaint) {
 
                 <div>
                     <small>
-                        PUBLIC CHAIN
+                        LOCAL INTEGRITY CHAIN
                     </small>
 
                     <strong>
@@ -5052,7 +10209,7 @@ function blockchainStateMarkup(complaint) {
                     </strong>
 
                     <p>
-                        No blockchain transaction hash
+                        No local SHA-256 hash-chain anchor
                         is present in the current backend
                         record.
                     </p>
@@ -5071,7 +10228,7 @@ function blockchainStateMarkup(complaint) {
 
             <div>
                 <small>
-                    PUBLIC CHAIN
+                    LOCAL HASH CHAIN
                 </small>
 
                 <strong>
@@ -5156,6 +10313,8 @@ function caseTimelineMarkup(
 async function openCase(
     complaintId
 ) {
+    currentCaseComplaintId = Number(complaintId);
+
     const overlay =
         document.getElementById(
             "caseOverlay"
@@ -5164,6 +10323,9 @@ async function openCase(
     const body =
         document.getElementById(
             "caseOverlayBody"
+        ) ||
+        document.getElementById(
+            "caseContent"
         );
 
     if (
@@ -5223,6 +10385,8 @@ async function openCase(
                 "Problem File not found."
             );
         }
+
+        upsertComplaintRecord(complaint);
 
         const hash =
             getBlockchainHash(
@@ -5460,6 +10624,13 @@ async function openCase(
                 }
 
 
+                ${
+                    authorityProofPublicHTML(
+                        complaint
+                    )
+                }
+
+
                 <section class="case-record-section">
 
                     <div class="case-section-heading">
@@ -5580,6 +10751,8 @@ async function openCase(
 
 
 function closeCaseOverlay() {
+    currentCaseComplaintId = null;
+
     const overlay =
         document.getElementById(
             "caseOverlay"
@@ -5596,6 +10769,17 @@ function closeCaseOverlay() {
 
 
 function initializeCaseOverlay() {
+    document
+        .querySelectorAll(
+            "[data-close-case]"
+        )
+        .forEach(element => {
+            element.addEventListener(
+                "click",
+                closeCaseOverlay
+            );
+        });
+
     document
         .getElementById(
             "caseClose"
@@ -5707,6 +10891,10 @@ function renderIntegrityDetail(
             complaint
         );
 
+    const integrityEvents = Array.isArray(complaint?.integrity_events)
+        ? complaint.integrity_events
+        : [];
+
     detail.hidden = false;
 
     detail.innerHTML = `
@@ -5739,7 +10927,7 @@ function renderIntegrityDetail(
             >
                 ${
                     state.anchored
-                        ? "✓ CHAIN LINK PRESENT"
+                        ? "✓ HASH LINK PRESENT"
                         : "× NOT ANCHORED"
                 }
             </span>
@@ -5815,7 +11003,7 @@ function renderIntegrityDetail(
         <div class="integrity-detail-hash">
 
             <small>
-                PUBLIC CHAIN HASH
+                LOCAL HASH-CHAIN ANCHOR
             </small>
 
             <code>
@@ -5842,10 +11030,10 @@ function renderIntegrityDetail(
                         </strong>
 
                         <p>
-                            CITYFILE received a blockchain
-                            transaction hash for this record.
-                            The hash is displayed exactly as
-                            returned by the backend.
+                            CITYFILE found this record in its
+                            file-backed SHA-256 hash chain.
+                            This is tamper-evident integrity
+                            metadata, not a public blockchain transaction.
                         </p>
                     `
 
@@ -5856,7 +11044,7 @@ function renderIntegrityDetail(
 
                         <p>
                             This record currently has no
-                            blockchain transaction hash.
+                            local hash-chain anchor.
                             CITYFILE does not invent one or
                             pretend the record is anchored.
                         </p>
@@ -5865,6 +11053,17 @@ function renderIntegrityDetail(
 
         </div>
 
+        ${integrityEvents.length ? `
+            <div class="integrity-detail-grid">
+                ${integrityEvents.map(event => `
+                    <div>
+                        <small>LINK ${escapeHTML(String(event.index ?? "—"))} · ${escapeHTML(formatDate(event.timestamp))}</small>
+                        <strong>${escapeHTML(String(event?.data?.event || "LEGACY RECORD").replaceAll("_", " ").toUpperCase())}</strong>
+                        <code>${escapeHTML(shortenedHash(event.hash || ""))}</code>
+                    </div>
+                `).join("")}
+            </div>
+        ` : ""}
 
         <button
             type="button"
@@ -5991,7 +11190,7 @@ function renderIntegrityEvents() {
 
     /*
        Show a manageable section of the
-       public chain rather than creating
+       local integrity chain rather than creating
        hundreds of giant links at once.
 
        Newest six records are selected,
@@ -6579,6 +11778,8 @@ function viewFromHash() {
             "archive",
             "track",
             "profile",
+            "citykeepers",
+            "authority",
             "integrity",
             "map",
             "report"
@@ -6648,61 +11849,19 @@ function initializeHomeActions() {
 
 
 /* ============================================================
-   PROFILE STORAGE RECOVERY
+   LEGACY PROFILE STORAGE CLEANUP
    ============================================================ */
 
 function cleanupStoredComplaintIds() {
-    const ids =
-        getMyComplaintIds();
-
-    if (!ids.length) {
-        return;
+    // Legacy browser ownership is intentionally ignored. Profile data now
+    // comes from /me/complaints and the authenticated backend identity.
+    try {
+        localStorage.removeItem("cityfile_my_complaints");
     }
-
-    /*
-       We intentionally DO NOT delete IDs merely
-       because a backend request did not return
-       them today.
-
-       A public civic record should not silently
-       disappear from the user's local footprint
-       because of a temporary API problem.
-
-       We only remove malformed local values.
-    */
-
-    const cleaned =
-        ids.filter(
-            id => {
-                const parsed =
-                    Number.parseInt(
-                        String(id),
-                        10
-                    );
-
-                return Number.isFinite(
-                    parsed
-                );
-            }
-        );
-
-    if (
-        cleaned.length !==
-        ids.length
-    ) {
-        localStorage.setItem(
-            "cityfile_my_complaints",
-            JSON.stringify(
-                cleaned
-            )
-        );
+    catch (error) {
+        console.warn("Could not clear legacy complaint ownership cache:", error);
     }
 }
-
-
-/* ============================================================
-   SELECT / REFERENCE DATA RECOVERY
-   ============================================================ */
 
 function preserveSelectValue(
     select,
@@ -6884,6 +12043,20 @@ async function refreshEverything({
     ) {
         renderMapMarkers();
     }
+
+    if (
+        viewName ===
+        "authority"
+    ) {
+        renderAuthorityDashboard();
+    }
+
+    if (
+        viewName ===
+        "citykeepers"
+    ) {
+        renderCitykeepers();
+    }
 }
 
 
@@ -6921,6 +12094,24 @@ window.loadComplaints =
 window.refreshEverything =
     refreshEverything;
 
+window.openAuthorityAction =
+    openAuthorityAction;
+
+window.closeAuthorityAction =
+    closeAuthorityAction;
+
+window.updateAuthorityStatus =
+    updateAuthorityStatus;
+
+window.updateAuthorityDeadline =
+    updateAuthorityDeadline;
+
+window.reviewAuthorityResolution =
+    reviewAuthorityResolution;
+
+window.openCitizenVerification =
+    openCitizenVerification;
+
 
 /* ============================================================
    INITIALIZATION
@@ -6938,6 +12129,8 @@ async function initializeCityfile() {
     initializeMapFilters();
 
     initializeComplaintForm();
+
+    initializeCityDepartmentLink();
 
     initializeEvidencePreview();
 
@@ -6957,11 +12150,19 @@ async function initializeCityfile() {
 
     initializeIntegrityInteractions();
 
+    initializeCitykeepers();
+
+    initializeAuthorityDashboard();
+
     initializeKeyboardSupport();
 
     initializeHashNavigation();
 
     handleOnlineState();
+
+    // Clerk is loaded before Citykeepers data so protected
+    // participation/profile requests can attach a valid token.
+    await initializeClerkAuth();
 
 
     /*
@@ -7211,6 +12412,7 @@ function enableMobileContinuousPage() {
         "homeView",
         "archiveView",
         "trackView",
+        "citykeepersView",
         "integrityView",
         "profileView"
     ];

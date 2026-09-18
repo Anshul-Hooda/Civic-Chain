@@ -1,0 +1,9 @@
+# Minimum dependency checklist inferred from the supplied CITYFILE code.
+# Merge these into your existing requirements.txt rather than blindly replacing it.
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+python-multipart
+python-dotenv
+clerk-backend-api>=6.0.1
