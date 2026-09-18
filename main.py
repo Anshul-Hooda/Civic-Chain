@@ -93,22 +93,7 @@ if db.query(models.Department).count() == 0:
     ])
 
     db.commit()
-    # Seed demo officer if none exists
-if db.query(models.Officer).count() == 0:
-    roads = db.query(models.Department).filter(
-        models.Department.department_name == "Roads"
-    ).first()
-
-    if roads:
-        db.add(
-            models.Officer(
-                officer_name="Demo Officer",
-                role="Road Officer",
-                department_id=roads.department_id
-            )
-        )
-        db.commit()
-
+    
 db.close()
 
 
