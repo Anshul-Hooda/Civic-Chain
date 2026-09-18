@@ -5,3 +5,4 @@ pymysql
 python-multipart
 web3
 python-dotenv
+clerk-backend-api
