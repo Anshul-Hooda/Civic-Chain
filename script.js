@@ -7867,7 +7867,9 @@ function locationPayloadFromForm() {
     if (area) {
         locationText =
             `Area: ${area}` +
-            (location ? ` | ${location}` : "");
+            (location
+                ? ` | ${location}`
+                : "");
     }
 
     if (
@@ -7883,6 +7885,11 @@ function locationPayloadFromForm() {
 
     return locationText;
 }
+
+
+    
+    `
+       
 /* ============================================================
    EVIDENCE + SUBMISSION
    ============================================================ */
