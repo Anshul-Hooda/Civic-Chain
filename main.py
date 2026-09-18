@@ -1954,7 +1954,7 @@ def get_web3_status():
             "reason": "Web3 failed to initialize"
         }
 
-      try:
+    try:
         connected = web3.is_connected()
 
         contract_code = b""
