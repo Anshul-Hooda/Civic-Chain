@@ -84,34 +84,56 @@ models.Base.metadata.create_all(bind=engine)
 # This keeps old local databases working after Clerk identity is added.
 def ensure_citykeeper_auth_schema():
     inspector = inspect(engine)
+    table_names = inspector.get_table_names()
 
-    if "users" not in inspector.get_table_names():
-        return
+    # =====================================================
+    # USERS TABLE
+    # =====================================================
 
-    user_columns = {
-        column["name"]
-        for column in inspector.get_columns("users")
-    }
+    if "users" in table_names:
+        user_columns = {
+            column["name"]
+            for column in inspector.get_columns("users")
+        }
 
-    with engine.begin() as connection:
-        if "clerk_user_id" not in user_columns:
+        with engine.begin() as connection:
+            if "clerk_user_id" not in user_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE users "
+                        "ADD COLUMN clerk_user_id VARCHAR(255)"
+                    )
+                )
+
             connection.execute(
                 text(
-                    "ALTER TABLE users "
-                    "ADD COLUMN clerk_user_id VARCHAR(255)"
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ix_users_clerk_user_id "
+                    "ON users (clerk_user_id)"
                 )
             )
 
-        # Supported by SQLite and PostgreSQL. The index is intentionally
-        # separate so existing databases do not need a destructive migration.
-        connection.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS "
-                "ix_users_clerk_user_id "
-                "ON users (clerk_user_id)"
-            )
-        )
+    # =====================================================
+    # EVIDENCE TABLE
+    # =====================================================
 
+    if "evidence" in table_names:
+        evidence_columns = {
+            column["name"]
+            for column in inspector.get_columns("evidence")
+        }
+
+        with engine.begin() as connection:
+            if "uploaded_by_user" not in evidence_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE evidence "
+                        "ADD COLUMN uploaded_by_user INTEGER"
+                    )
+                )
+
+
+ensure_citykeeper_auth_schema()
 
 ensure_citykeeper_auth_schema()
 
