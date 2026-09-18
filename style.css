@@ -3382,7 +3382,6 @@ select:focus-visible {
     text-transform: uppercase;
     color: #c59a62;
 }
-
 .inner-hero h2,
 .integrity-hero h2 {
     margin: 0;
@@ -3392,6 +3391,12 @@ select:focus-visible {
     line-height: .98;
     letter-spacing: -.035em;
     color: #f3eee5;
+}
+
+/* Smaller headline ONLY on Integrity page */
+.integrity-hero h2 {
+    font-size: clamp(32px, 4vw, 52px);
+    line-height: 1.05;
 }
 
 .integrity-hero h2 em {
@@ -8986,4 +8991,58 @@ select:focus-visible {
 
 .citykeeper-profile-seal[data-citykeeper-auth] {
     cursor: pointer;
+}
+.integrity-explainer h3 {
+    margin: 0 0 22px;
+    font-size: 0.78rem;
+    letter-spacing: 0.16em;
+    line-height: 1.6;
+    font-weight: 700;
+}
+
+.integrity-explainer p {
+    margin: 0 0 18px;
+    line-height: 1.75;
+}
+
+.integrity-explainer .integrity-closing {
+    margin-top: 28px;
+    margin-bottom: 0;
+    font-size: 0.9rem;
+    letter-spacing: 0.04em;
+}
+
+/* =========================================
+   INTEGRITY — COMPACT SPACING
+   ========================================= */
+
+.integrity-view .inner-page-shell {
+    padding-top: 35px;
+    padding-bottom: 50px;
+}
+
+/* Main headline + Web3 explanation */
+.integrity-hero {
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 30px 0 35px !important;
+    margin: 0 !important;
+}
+
+/* "CHAIN OF CIVIC EVENTS" section */
+.integrity-view .chain-intro {
+    margin-top: 25px !important;
+    margin-bottom: 12px !important;
+    padding-bottom: 18px !important;
+}
+
+/* Actual blockchain/integrity chain */
+.integrity-view .integrity-chain-stage {
+    padding-top: 15px !important;
+    padding-bottom: 30px !important;
+}
+
+/* LOCAL INTEGRITY CHAIN line */
+.integrity-view .chain-status-line {
+    margin-bottom: 22px !important;
 }
