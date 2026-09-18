@@ -8202,14 +8202,32 @@ function saveMyComplaintId() {
 
 
 function getReporterPayload() {
+    const phoneInput = document.getElementById("phone");
+    const phone = phoneInput?.value.trim() || "";
+
+    if (!/^[0-9]{10}$/.test(phone)) {
+        if (phoneInput) {
+            phoneInput.setCustomValidity(
+                "Phone number must contain exactly 10 digits."
+            );
+            phoneInput.reportValidity();
+            phoneInput.focus();
+        }
+
+        throw new Error("Phone number must contain exactly 10 digits.");
+    }
+
+    if (phoneInput) {
+        phoneInput.setCustomValidity("");
+    }
+
     return {
         name: document.getElementById("name")?.value.trim() || "",
         email: document.getElementById("email")?.value.trim() || "",
-        phone: document.getElementById("phone")?.value.trim() || "",
+        phone: phone,
         publicUserId: document.getElementById("userId")?.value.trim() || ""
     };
 }
-
 async function createReporterIfNeeded() {
     // Reporter contact is now submitted atomically with the complaint and
     // stored in the backend's private complaint_reporters table.
