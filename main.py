@@ -225,27 +225,33 @@ clerk_client = (
     if Clerk is not None and CLERK_SECRET_KEY
     else None
 )
-
 def ensure_reference_data():
     """Idempotently ensure every supported city has usable reference data."""
     db = SessionLocal()
 
     try:
         supported_cities = [
-        "Delhi",
-        "Sonipat",
-        "Gurugram",
-        
-    ]
+            "Delhi",
+            "Sonipat",
+            "Gurugram",
+            "Rohtak",
+            "Faridabad",
+            "Ghaziabad",
+            "Noida",
+            "Panipat",
+            "Karnal",
+            "Bahadurgarh",
+        ]
 
-         categories = [
+        categories = [
             "Pothole",
             "Broken Streetlight",
             "Water Leakage",
             "Overflowing Garbage",
-            "Unsafe Road",
-            "Drainage Problem"
+           
         ]
+
+            
 
         department_names = [
             "Roads",
