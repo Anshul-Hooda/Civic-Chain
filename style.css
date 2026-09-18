@@ -9105,3 +9105,52 @@ select:focus-visible {
 .integrity-link {
     min-width: 125px;
 }
+
+/* =========================================================
+   INTEGRITY — CHAIN BELOW "EVERY IMPORTANT STEP"
+   ========================================================= */
+
+/* Intro takes the entire row */
+.integrity-view .chain-intro {
+    grid-column: 1 / -1 !important;
+
+    margin-top: 40px !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 25px !important;
+}
+
+/* Blockchain starts on a NEW full-width row */
+.integrity-view .integrity-chain-stage {
+    grid-column: 1 / -1 !important;
+
+    width: 100% !important;
+    max-width: none !important;
+
+    padding: 20px 0 45px !important;
+    margin: 0 !important;
+}
+
+/* Status text above blockchain */
+.integrity-view .chain-status-line {
+    width: 100%;
+    margin-bottom: 30px !important;
+}
+
+/* Horizontal blockchain */
+.integrity-view .integrity-chain {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: flex-start;
+
+    width: 100% !important;
+    max-width: none !important;
+
+    overflow-x: auto;
+    padding: 20px 5px 35px;
+}
+
+/* Space each record evenly */
+.integrity-view .chain-record {
+    flex: 1 0 175px;
+    min-width: 175px;
+}
