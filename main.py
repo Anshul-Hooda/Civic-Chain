@@ -1954,8 +1954,14 @@ def get_web3_status():
             "reason": "Web3 failed to initialize"
         }
 
-    try:
+      try:
         connected = web3.is_connected()
+
+        contract_code = b""
+        if connected:
+            contract_code = web3.eth.get_code(
+                Web3.to_checksum_address(CONTRACT_ADDRESS)
+            )
 
         return {
             "configured": True,
@@ -1963,7 +1969,10 @@ def get_web3_status():
             "chain_id": web3.eth.chain_id if connected else None,
             "latest_block": web3.eth.block_number if connected else None,
             "account_address": account.address,
-            "contract_address": Web3.to_checksum_address(CONTRACT_ADDRESS)
+            "contract_address": Web3.to_checksum_address(CONTRACT_ADDRESS),
+            "contract_code_present": bool(
+                contract_code and contract_code != b"\x00"
+            )
         }
 
     except Exception as error:
@@ -1972,7 +1981,6 @@ def get_web3_status():
             "connected": False,
             "reason": str(error)
         }
-
 
 # =========================================================
 # CITYKEEPERS - BACKEND-DRIVEN COMMUNITY ACTION
