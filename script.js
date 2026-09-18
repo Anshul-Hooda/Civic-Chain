@@ -12126,9 +12126,9 @@ async function initializeCityfile() {
     initializeMapFilters();
 
     initializeComplaintForm();
-
+   
     initializeCityDepartmentLink();
-
+    initializeAreaSelect();
     initializeEvidencePreview();
 
     initializeTracking();
