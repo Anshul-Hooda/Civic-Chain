@@ -232,9 +232,34 @@ def ensure_reference_data():
 
     try:
         supported_cities = [
-            "Delhi",
-            "Sonipat",
-            "Gurugram"
+            "Rohini",
+            "pitampura"
+            "shalimar Bagh",
+            "Model town",
+            "Civil lines",
+            "Karol Bagh",
+            "Patel nagar"
+            "Rajinder Nagar",
+            "Cannaught place/New Delhi",
+            "shahdara",
+            "Laxmi Nagar",
+            "preet vihar",
+            "Mayur vihar",
+            "Vivek vihar",
+            "Dwarka",
+            "Najafgarh",
+            "Janakpuri",
+            "Vikaspuri",
+            "Uttam nagar",
+            "Narela",
+            "Bawana",
+            "Sangham Vihar",
+            "Saket",
+            "Mehrauli",
+            "Vasant Kunj",
+            "others"
+            
+            
         ]
 
         categories = [
