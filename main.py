@@ -232,13 +232,12 @@ def ensure_reference_data():
 
     try:
         supported_cities = [
-        "Delhi",
-        "Sonipat",
-        "Gurugram",
-        
-    ]
+            "Delhi",
+            "Sonipat",
+            "Gurugram",
+        ]
 
-         categories = [
+        categories = [
             "Pothole",
             "Broken Streetlight",
             "Water Leakage",
@@ -1886,26 +1885,6 @@ def get_reviews(
         models.Review.complaint_id == complaint_id
     ).all()
 
-
-@app.get("/blockchain")
-def get_blockchain():
-    return {
-        "type": "local_sha256_hash_chain",
-        "is_public_blockchain": False,
-        "valid": bool(blockchain.verify_chain()),
-        "error": blockchain.integrity_error,
-        "blocks": [
-            {
-                "index": block.index,
-                "complaint_id": block.complaint_id,
-                "timestamp": block.timestamp,
-                "data": block.data,
-                "previous_hash": block.previous_hash,
-                "hash": block.hash
-            }
-            for block in blockchain.chain
-        ]
-    }
 
 @app.get("/blockchain")
 def get_blockchain():

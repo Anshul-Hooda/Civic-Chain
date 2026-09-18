@@ -376,7 +376,6 @@ function getBlockchainHash(complaint) {
     return (
         complaint?.blockchain_hash ||
         complaint?.blockchain_tx_hash ||
-        complaint?.blockchain_hash ||
         complaint?.tx_hash ||
         complaint?.transaction_hash ||
         blockchainHashesByComplaintId.get(complaintId) ||
@@ -932,12 +931,15 @@ function showView(viewName) {
     });
 
     if (viewName === "map") {
-        setTimeout(() => {
-            initializeCityMap();
-            cityMap?.invalidateSize();
+    setTimeout(() => {
+        initializeCityMap();
+
+        requestAnimationFrame(() => {
+            cityMap?.invalidateSize(true);
             renderMapMarkers();
-        }, 100);
-    }
+        });
+    }, 150);
+}
 
     if (viewName === "report") {
         setTimeout(() => {
@@ -7423,39 +7425,42 @@ function createTileLayer() {
 
 
 function initializeCityMap() {
-    if (
-        cityMap ||
-        typeof L === "undefined" ||
-        !document.getElementById(
-            "cityMap"
-        )
-    ) {
+    const mapElement = document.getElementById("cityMap");
+
+    if (!mapElement) {
+        console.warn("CITYFILE: #cityMap element not found.");
         return;
     }
 
-    cityMap =
-        L.map(
-            "cityMap",
-            {
-                center:
-                    CITY_CENTERS.delhi,
+    if (typeof L === "undefined") {
+        console.error("CITYFILE: Leaflet failed to load.");
 
-                zoom: 11
-            }
-        );
+        const message = document.getElementById("mapMessage");
 
-    createTileLayer()
-        .addTo(
-            cityMap
-        );
+        if (message) {
+            message.textContent =
+                "The city map could not load. Please refresh the page.";
+        }
 
-    mapMarkerLayer =
-        L.layerGroup()
-            .addTo(
-                cityMap
-            );
+        return;
+    }
 
-    renderMapMarkers();
+    if (!cityMap) {
+        cityMap = L.map("cityMap", {
+            center: CITY_CENTERS.delhi,
+            zoom: 11,
+            zoomControl: true
+        });
+
+        createTileLayer().addTo(cityMap);
+
+        mapMarkerLayer = L.layerGroup().addTo(cityMap);
+    }
+
+    requestAnimationFrame(() => {
+        cityMap.invalidateSize(true);
+        renderMapMarkers();
+    });
 }
 
 
@@ -7498,41 +7503,67 @@ function initializeReportMap() {
 }
 
 
-function extractCoordinates(
-    complaint
-) {
-    const raw =
-        String(
-            complaint?.location || ""
-        );
+function extractCoordinates(complaint) {
+    const raw = String(complaint?.location || "");
 
-    const match =
-        raw.match(
-            /Latitude:\s*(-?\d+(?:\.\d+)?),\s*Longitude:\s*(-?\d+(?:\.\d+)?)/i
-        );
+    const match = raw.match(
+        /Latitude:\s*(-?\d+(?:\.\d+)?)\s*,\s*Longitude:\s*(-?\d+(?:\.\d+)?)/i
+    );
 
-    if (match) {
-        return [
-            Number(match[1]),
-            Number(match[2])
-        ];
+    if (!match) {
+        return null;
     }
 
-    return null;
+    const latitude = Number(match[1]);
+    const longitude = Number(match[2]);
+
+    if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude) ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180
+    ) {
+        return null;
+    }
+
+    return [latitude, longitude];
 }
 
 
 function complaintCoordinates(complaint) {
-    const latitude = Number(complaint?.latitude);
-    const longitude = Number(complaint?.longitude);
+    const rawLatitude = complaint?.latitude;
+    const rawLongitude = complaint?.longitude;
 
-    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-        return [latitude, longitude];
+    const hasStoredLatitude =
+        rawLatitude !== null &&
+        rawLatitude !== undefined &&
+        String(rawLatitude).trim() !== "";
+
+    const hasStoredLongitude =
+        rawLongitude !== null &&
+        rawLongitude !== undefined &&
+        String(rawLongitude).trim() !== "";
+
+    if (hasStoredLatitude && hasStoredLongitude) {
+        const latitude = Number(rawLatitude);
+        const longitude = Number(rawLongitude);
+
+        if (
+            Number.isFinite(latitude) &&
+            Number.isFinite(longitude) &&
+            latitude >= -90 &&
+            latitude <= 90 &&
+            longitude >= -180 &&
+            longitude <= 180
+        ) {
+            return [latitude, longitude];
+        }
     }
 
     return extractCoordinates(complaint);
 }
-
 
 function syncMapFilterButtons() {
     document
@@ -7572,29 +7603,29 @@ function renderMapMarkers() {
     const records =
         currentUnresolvedComplaints()
             .filter(
-                complaint => (
+                complaint =>
                     activeMapFilter === "all" ||
                     issueGroup(complaint) === activeMapFilter
-                )
+            )
+            .map(
+                complaint => ({
+                    complaint,
+                    coordinates: complaintCoordinates(complaint)
+                })
             )
             .filter(
-                complaint => Boolean(complaintCoordinates(complaint))
+                item => Array.isArray(item.coordinates)
             );
 
     const visible =
-        document.getElementById(
-            "visibleMapCount"
-        );
+        document.getElementById("visibleMapCount");
 
     if (visible) {
-        visible.textContent =
-            records.length;
+        visible.textContent = String(records.length);
     }
 
     const message =
-        document.getElementById(
-            "mapMessage"
-        );
+        document.getElementById("mapMessage");
 
     if (message) {
         message.textContent =
@@ -7603,96 +7634,111 @@ function renderMapMarkers() {
                 : "No unresolved records with stored coordinates match this filter.";
     }
 
-    records.forEach(
-        complaint => {
-            const [
-                lat,
-                lng
-            ] =
-                complaintCoordinates(
+    const bounds = [];
+
+    records.forEach(({ complaint, coordinates }) => {
+        const [lat, lng] = coordinates;
+
+        const marker =
+            L.circleMarker(
+                [lat, lng],
+                {
+                    radius:
+                        isAuthorityResolved(complaint)
+                            ? 8
+                            : 7,
+
+                    weight: 2,
+
+                    color:
+                        isAuthorityResolved(complaint)
+                            ? "#9b89b5"
+                            : "#c59a62",
+
+                    fillColor:
+                        isAuthorityResolved(complaint)
+                            ? "#9b89b5"
+                            : "#c59a62",
+
+                    fillOpacity:
+                        isAuthorityResolved(complaint)
+                            ? 0.15
+                            : 0.7
+                }
+            );
+
+        marker.bindPopup(`
+            <strong>
+                ${escapeHTML(
+                    formatComplaintId(
+                        complaint.complaint_id
+                    )
+                )}
+            </strong>
+
+            <br>
+
+            ${escapeHTML(
+                getCategoryName(
                     complaint
-                );
+                )
+            )}
 
-            const marker =
-                L.circleMarker(
-                    [lat, lng],
+            <br>
+
+            ${escapeHTML(
+                publicLocation(
+                    complaint
+                )
+            )}
+
+            <br>
+
+            <button
+                type="button"
+                onclick="window.openCase(${Number(
+                    complaint.complaint_id
+                )})"
+            >
+                OPEN FILE →
+            </button>
+        `);
+
+        marker.addTo(mapMarkerLayer);
+        bounds.push([lat, lng]);
+    });
+
+    const mapView =
+        document.getElementById("mapView");
+
+    const mapIsVisible =
+        mapView?.classList.contains("active-view");
+
+    if (mapIsVisible) {
+        requestAnimationFrame(() => {
+            cityMap.invalidateSize(true);
+
+            if (bounds.length === 1) {
+                cityMap.setView(bounds[0], 14);
+            }
+            else if (bounds.length > 1) {
+                cityMap.fitBounds(
+                    L.latLngBounds(bounds),
                     {
-                        radius:
-                            isAuthorityResolved(
-                                complaint
-                            )
-                                ? 8
-                                : 7,
-
-                        weight: 2,
-
-                        color:
-                            isAuthorityResolved(
-                                complaint
-                            )
-                                ? "#9b89b5"
-                                : "#c59a62",
-
-                        fillColor:
-                            isAuthorityResolved(
-                                complaint
-                            )
-                                ? "#9b89b5"
-                                : "#c59a62",
-
-                        fillOpacity:
-                            isAuthorityResolved(
-                                complaint
-                            )
-                                ? .15
-                                : .7
+                        padding: [40, 40],
+                        maxZoom: 14
                     }
                 );
-
-            marker.bindPopup(`
-                <strong>
-                    ${escapeHTML(
-                        formatComplaintId(
-                            complaint.complaint_id
-                        )
-                    )}
-                </strong>
-
-                <br>
-
-                ${escapeHTML(
-                    getCategoryName(
-                        complaint
-                    )
-                )}
-
-                <br>
-
-                ${escapeHTML(
-                    publicLocation(
-                        complaint
-                    )
-                )}
-
-                <br>
-
-                <button
-                    type="button"
-                    onclick="window.openCase(${Number(
-                        complaint.complaint_id
-                    )})"
-                >
-                    OPEN FILE →
-                </button>
-            `);
-
-            marker.addTo(
-                mapMarkerLayer
-            );
-        }
-    );
+            }
+            else {
+                cityMap.setView(
+                    CITY_CENTERS.delhi,
+                    11
+                );
+            }
+        });
+    }
 }
-
 
 function initializeMapFilters() {
     document
@@ -7917,7 +7963,6 @@ function locationPayloadFromForm() {
 
 
     
-    `
        
 /* ============================================================
    EVIDENCE + SUBMISSION
@@ -10372,10 +10417,10 @@ async function openCase(
     }
 
     overlay.hidden = false;
+overlay.classList.add("open");
+overlay.setAttribute("aria-hidden", "false");
 
-    document.body.classList.add(
-        "case-open"
-    );
+document.body.classList.add("case-open");
 
     body.innerHTML = `
         <div class="case-loading">
@@ -12115,8 +12160,8 @@ window.closeCaseOverlay =
 window.showView =
     showView;
 
-//window.openMapFor =
-//   openMapFor; 
+window.openMapFor =
+  openMapFor; 
 
 window.trackComplaint =
     trackComplaint;
@@ -12531,7 +12576,7 @@ function updateHomeProblemStatuses() {
 
     const statusElements = {
         road: document.getElementById("homeRoadStatus"),
-        streetlight: document.getElementById("homeStreetlightStatus"),
+        streetlight: document.getElementById("homeStreetLightStatus"),
         water: document.getElementById("homeWaterStatus"),
         sanitation: document.getElementById("homeSanitationStatus")
     };
@@ -12714,7 +12759,7 @@ function openHomeCategoryRecords(group) {
 
                                     <button
                                         type="button"
-                                        onclick="openCase(${Number(
+                                        onclick="window.openCase(${Number(
                                             complaint.complaint_id
                                         )})"
                                     >
@@ -12742,6 +12787,8 @@ function openHomeCategoryRecords(group) {
        --------------------------------------------- */
 
     overlay.hidden = false;
+    overlay.classList.add("open");
+    overlay.setAttribute("aria-hidden", "false");
 
     document.body.classList.add("case-open");
 }
@@ -12774,3 +12821,4 @@ if (text.includes("inspect complete record")) {
 //Remove "Refresh" button/link
 if (text.includes("refresh")){element.style.display = "none";}
 });
+

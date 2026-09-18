@@ -9121,3 +9121,78 @@ select:focus-visible {
 .view.active-view {
     display: block !important;
 }
+
+/* =========================================================
+   TRACK SCROLL — AGED IVORY PAPER FINAL OVERRIDE
+   ========================================================= */
+
+#trackView .civic-scroll {
+    --scroll-ink: #292923;
+    --scroll-muted: rgba(67, 61, 50, 0.62);
+    --scroll-paper: #f3ecdd;
+    --scroll-paper-deep: #ded3bf;
+}
+
+/* ACTUAL ANCIENT PAPER */
+#trackView .scroll-paper {
+    color: var(--scroll-ink);
+
+    background:
+        repeating-linear-gradient(
+            0deg,
+            rgba(66, 58, 43, 0.025) 0 1px,
+            transparent 1px 5px
+        ),
+        radial-gradient(
+            circle at 88% 65%,
+            rgba(78, 31, 45, 0.06),
+            transparent 34%
+        ),
+        linear-gradient(
+            100deg,
+            #e9e1d0 0%,
+            #f3ecdd 55%,
+            #ded3bf 100%
+        );
+
+    border-left: 1px solid rgba(69, 58, 43, 0.14);
+    border-right: 1px solid rgba(69, 58, 43, 0.14);
+}
+
+/* Reduce the old BLACK edge shadow */
+#trackView .scroll-paper::after {
+    box-shadow:
+        inset 24px 0 36px rgba(70, 55, 39, 0.10),
+        inset -24px 0 36px rgba(70, 55, 39, 0.10),
+        inset 0 18px 28px rgba(70, 55, 39, 0.07),
+        inset 0 -18px 28px rgba(70, 55, 39, 0.10);
+}
+
+/* MAIN TEXT */
+#trackView .scroll-event-description,
+#trackView .scroll-verification-warning p {
+    color: rgba(41, 41, 35, 0.78);
+}
+
+/* SECONDARY / SMALL TEXT */
+#trackView .scroll-event-meta,
+#trackView .seal-instruction,
+#trackView .scroll-complete-record > small,
+#trackView .scroll-verified small {
+    color: rgba(67, 61, 50, 0.58);
+}
+
+/* LARGE HEADINGS */
+#trackView .scroll-complete-record > h4,
+#trackView .scroll-verified strong {
+    color: #292923;
+}
+
+/* DIVIDERS */
+#trackView .scroll-complete-record.is-revealed {
+    border-top-color: rgba(69, 58, 43, 0.18);
+}
+
+#trackView .scroll-verified {
+    border-color: rgba(69, 58, 43, 0.20);
+}
