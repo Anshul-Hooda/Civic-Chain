@@ -231,11 +231,18 @@ def ensure_reference_data():
     db = SessionLocal()
 
     try:
-        supported_cities = [
-            "Delhi",
-            "sonipat",
-            "Gurugram",
-         ]
+       supported_cities = [
+    "Delhi",
+    "Sonipat",
+    "Gurugram",
+    "Rohtak",
+    "Faridabad",
+    "Ghaziabad",
+    "Noida",
+    "Panipat",
+    "Karnal",
+    "Bahadurgarh",
+]
 
         categories = [
             "Pothole",
