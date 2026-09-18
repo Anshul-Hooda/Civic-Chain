@@ -231,7 +231,7 @@ def ensure_reference_data():
     db = SessionLocal()
 
     try:
-       supported_cities = [
+        supported_cities = [
     "Delhi",
     "Sonipat",
     "Gurugram",
