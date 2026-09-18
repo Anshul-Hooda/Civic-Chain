@@ -2418,6 +2418,14 @@ input[type="file"]::file-selector-button {
     display: block;
 }
 
+.case-overlay[hidden] {
+    display: none !important;
+}
+
+.case-overlay.open {
+    display: block;
+}
+
 .case-backdrop {
     position: absolute;
 
