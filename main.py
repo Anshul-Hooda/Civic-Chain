@@ -73,7 +73,7 @@ except ImportError:
     AuthenticateRequestOptions = None
 
 
-from database import get_db, engine
+from database import get_db, engine, SessionLocal
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -132,13 +132,56 @@ def ensure_citykeeper_auth_schema():
                     )
                 )
 
+            if "uploaded_by_officer" not in evidence_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE evidence "
+                        "ADD COLUMN uploaded_by_officer INTEGER"
+                    )
+                )
+
+            if "evidence_type" not in evidence_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE evidence "
+                        "ADD COLUMN evidence_type VARCHAR(100)"
+                    )
+                )
+
+            if "file_url" not in evidence_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE evidence "
+                        "ADD COLUMN file_url VARCHAR(500)"
+                    )
+                )
+
+            if "file_hash" not in evidence_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE evidence "
+                        "ADD COLUMN file_hash VARCHAR(255)"
+                    )
+                )
+
+            if "description" not in evidence_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE evidence "
+                        "ADD COLUMN description TEXT"
+                    )
+                )
+
+            if "uploaded_at" not in evidence_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE evidence "
+                        "ADD COLUMN uploaded_at DATETIME"
+                    )
+                )
+
 
 ensure_citykeeper_auth_schema()
-
-ensure_citykeeper_auth_schema()
-
-from database import SessionLocal
-
 
 # =========================================================
 # CLERK CONFIGURATION
