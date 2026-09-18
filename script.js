@@ -8614,7 +8614,7 @@ function parseComplaintId(value) {
             .trim()
             .toUpperCase()
             .replace(
-                /^CC-/,
+                /^CF-/,
                 ""
             );
 
@@ -8688,7 +8688,7 @@ async function trackComplaint() {
                 <small>INVALID RECORD ID</small>
 
                 <strong>
-                    Use a CITYFILE record such as CC-000123.
+                    Use a CITYFILE record such as CF-000123.
                 </strong>
             </div>
         `;
