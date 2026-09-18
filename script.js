@@ -224,7 +224,7 @@ function formatComplaintId(id) {
     const number = Number(id);
 
     return Number.isFinite(number)
-        ? `CF-${String(number).padStart(6, "0")}`
+        ? `CC-${String(number).padStart(6, "0")}`
         : String(id || "UNKNOWN");
 }
 
@@ -8614,7 +8614,7 @@ function parseComplaintId(value) {
             .trim()
             .toUpperCase()
             .replace(
-                /^CF-/,
+                /^CC-/,
                 ""
             );
 
