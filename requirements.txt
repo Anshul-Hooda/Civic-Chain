@@ -4,3 +4,4 @@ sqlalchemy
 pymysql
 python-multipart
 web3
+python-dotenv
