@@ -225,7 +225,6 @@ clerk_client = (
     if Clerk is not None and CLERK_SECRET_KEY
     else None
 )
-
 def ensure_reference_data():
     """Idempotently ensure every supported city has usable reference data."""
     db = SessionLocal()
@@ -242,9 +241,10 @@ def ensure_reference_data():
             "Broken Streetlight",
             "Water Leakage",
             "Overflowing Garbage",
-            "Unsafe Road",
-            "Drainage Problem"
+           
         ]
+
+            
 
         department_names = [
             "Roads",
