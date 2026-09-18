@@ -1046,9 +1046,10 @@ function initializeNavigation() {
 
             if (marker) {
                 openHomeCategoryRecords(
-                    marker.dataset.mapFilter ||
-                    "all"
+                    marker.dataset.mapFilter || "all"
                 );
+
+                return;
             }
         }
     );
