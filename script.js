@@ -3429,12 +3429,10 @@ function citykeeperContributionStatus(complaint, state) {
     // REAL CITYKEEPER EVIDENCE
     // =====================================================
 
-    const evidenceList =
-        backendEvidenceCache.get(
+    const evidence =
+        latestCitykeeperEvidenceForComplaint(
             complaintId
-        ) || [];
-
-    const evidence = latestCitykeeperEvidenceForComplaint(id);
+        );
 
 
     // =====================================================
