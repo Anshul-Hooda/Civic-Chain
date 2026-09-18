@@ -1704,13 +1704,19 @@
                                 <div class="field-group">
 
                                     <label for="phone">
-                                        Phone
+                                        Phone number
                                     </label>
-
+                                
                                     <input
                                         type="tel"
                                         id="phone"
+                                        name="phone"
+                                        inputmode="numeric"
+                                        pattern="[0-9]{10}"
+                                        minlength="10"
+                                        maxlength="10"
                                         required
+                                        oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0,10);"
                                         placeholder="Phone number"
                                     >
 
