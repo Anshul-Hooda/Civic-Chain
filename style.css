@@ -9121,19 +9121,22 @@ select:focus-visible {
 .view.active-view {
     display: block !important;
 }
-
 /* =========================================================
    TRACK SCROLL — AGED IVORY PAPER FINAL OVERRIDE
    ========================================================= */
 
 #trackView .civic-scroll {
-    --scroll-ink: #292923;
-    --scroll-muted: rgba(67, 61, 50, 0.62);
+    --scroll-ink: #3f392f;
+    --scroll-muted: rgba(63, 57, 47, 0.78);
     --scroll-paper: #f3ecdd;
     --scroll-paper-deep: #ded3bf;
 }
 
-/* ACTUAL ANCIENT PAPER */
+
+/* =========================================================
+   ACTUAL ANCIENT PAPER
+   ========================================================= */
+
 #trackView .scroll-paper {
     color: var(--scroll-ink);
 
@@ -9159,7 +9162,11 @@ select:focus-visible {
     border-right: 1px solid rgba(69, 58, 43, 0.14);
 }
 
-/* Reduce the old BLACK edge shadow */
+
+/* =========================================================
+   PAPER EDGE SHADOW
+   ========================================================= */
+
 #trackView .scroll-paper::after {
     box-shadow:
         inset 24px 0 36px rgba(70, 55, 39, 0.10),
@@ -9168,31 +9175,72 @@ select:focus-visible {
         inset 0 -18px 28px rgba(70, 55, 39, 0.10);
 }
 
-/* MAIN TEXT */
+
+/* =========================================================
+   MAIN TEXT
+   ========================================================= */
+
 #trackView .scroll-event-description,
-#trackView .scroll-verification-warning p {
-    color: rgba(41, 41, 35, 0.78);
+#trackView .scroll-verification-warning p,
+#trackView .scroll-case-location {
+    color: rgba(63, 57, 47, 0.88) !important;
 }
 
-/* SECONDARY / SMALL TEXT */
+
+/* =========================================================
+   SECONDARY / SMALL TEXT
+   ========================================================= */
+
 #trackView .scroll-event-meta,
 #trackView .seal-instruction,
 #trackView .scroll-complete-record > small,
 #trackView .scroll-verified small {
-    color: rgba(67, 61, 50, 0.58);
+    color: rgba(72, 64, 52, 0.76) !important;
 }
 
-/* LARGE HEADINGS */
+
+/* =========================================================
+   LARGE HEADINGS
+   ========================================================= */
+
 #trackView .scroll-complete-record > h4,
-#trackView .scroll-verified strong {
-    color: #292923;
+#trackView .scroll-verified strong,
+#trackView .scroll-case-title,
+#trackView .scroll-event-title {
+    color: #51483b !important;
+    opacity: 1 !important;
 }
 
-/* DIVIDERS */
+
+/* =========================================================
+   FORCE FADED SCROLL TEXT TO BE READABLE
+   ========================================================= */
+
+#trackView .scroll-paper h1,
+#trackView .scroll-paper h2,
+#trackView .scroll-paper h3,
+#trackView .scroll-paper h4 {
+    color: #51483b !important;
+    opacity: 1 !important;
+}
+
+#trackView .scroll-paper p {
+    color: #6a6053;
+}
+
+#trackView .scroll-paper small {
+    color: #786d5e;
+}
+
+
+/* =========================================================
+   DIVIDERS
+   ========================================================= */
+
 #trackView .scroll-complete-record.is-revealed {
-    border-top-color: rgba(69, 58, 43, 0.18);
+    border-top-color: rgba(69, 58, 43, 0.22);
 }
 
 #trackView .scroll-verified {
-    border-color: rgba(69, 58, 43, 0.20);
+    border-color: rgba(69, 58, 43, 0.24);
 }
