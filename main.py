@@ -1906,6 +1906,78 @@ def get_blockchain():
         ]
     }
 
+@app.get("/blockchain")
+def get_blockchain():
+    return {
+        "type": "local_sha256_hash_chain",
+        "is_public_blockchain": False,
+        "valid": bool(blockchain.verify_chain()),
+        "error": blockchain.integrity_error,
+        "blocks": [
+            {
+                "index": block.index,
+                "complaint_id": block.complaint_id,
+                "timestamp": block.timestamp,
+                "data": block.data,
+                "previous_hash": block.previous_hash,
+                "hash": block.hash
+            }
+            for block in blockchain.chain
+        ]
+    }
+
+
+# =========================================================
+# WEB3 STATUS
+# =========================================================
+
+@app.get("/web3/status")
+def get_web3_status():
+    if Web3 is None:
+        return {
+            "configured": False,
+            "connected": False,
+            "reason": "web3.py is not installed"
+        }
+
+    if not RPC_URL or not PRIVATE_KEY or not CONTRACT_ADDRESS:
+        return {
+            "configured": False,
+            "connected": False,
+            "reason": "Missing Web3 environment variables"
+        }
+
+    if web3 is None or contract is None or account is None:
+        return {
+            "configured": True,
+            "connected": False,
+            "reason": "Web3 failed to initialize"
+        }
+
+    try:
+        connected = web3.is_connected()
+
+        return {
+            "configured": True,
+            "connected": connected,
+            "chain_id": web3.eth.chain_id if connected else None,
+            "latest_block": web3.eth.block_number if connected else None,
+            "account_address": account.address,
+            "contract_address": Web3.to_checksum_address(CONTRACT_ADDRESS)
+        }
+
+    except Exception as error:
+        return {
+            "configured": True,
+            "connected": False,
+            "reason": str(error)
+        }
+
+
+# =========================================================
+# CITYKEEPERS - BACKEND-DRIVEN COMMUNITY ACTION
+# =========================================================
+
 
 
 # =========================================================
