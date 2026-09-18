@@ -232,13 +232,13 @@ def ensure_reference_data():
 
     try:
         supported_cities = [
-    "Delhi",
-    "Sonipat",
-    "Gurugram",
-    
-]
+        "Delhi",
+        "Sonipat",
+        "Gurugram",
+        
+    ]
 
-        categories = [
+         categories = [
             "Pothole",
             "Broken Streetlight",
             "Water Leakage",
