@@ -4037,24 +4037,48 @@ select:focus-visible {
 #integrityChainSummary { margin-left: auto; }
 
 .integrity-chain {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    align-items: center;
-    gap: 0;
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: nowrap;
+
+    width: 100%;
     overflow-x: auto;
-    padding: 18px 6px 28px;
+
+    padding: 25px 10px 35px;
 }
 
 .chain-record {
     position: relative;
-    min-width: 178px;
+    flex: 0 0 205px;
+    min-width: 205px;
+
     border: 0;
     background: transparent;
     color: inherit;
     cursor: pointer;
     text-align: center;
 }
-.chain-record::after { content: ""; position: absolute; z-index: 0; top: 58px; left: calc(50% + 50px); width: calc(100% - 100px); min-width: 78px; height: 3px; background: linear-gradient(90deg, #526b5b, #7a8c7e); box-shadow: 0 0 0 1px rgba(111,156,122,.12); }
+
+.chain-record::after {
+    content: "";
+    position: absolute;
+    z-index: 0;
+
+    top: 51px;
+    left: calc(50% + 51px);
+
+    width: 103px;
+    height: 2px;
+
+    background: linear-gradient(
+        90deg,
+        #53695b,
+        #718779
+    );
+
+    box-shadow: 0 0 8px rgba(111, 156, 122, 0.12);
+}
+
 .chain-record:last-child::after { display: none; }
 .chain-record.pending::after { background: repeating-linear-gradient(90deg, #7d5a58 0 9px, transparent 9px 16px); }
 
@@ -9045,4 +9069,39 @@ select:focus-visible {
 /* LOCAL INTEGRITY CHAIN line */
 .integrity-view .chain-status-line {
     margin-bottom: 22px !important;
+}
+
+/* ============================================================
+   INTEGRITY CHAIN — BETTER LAYOUT
+   ============================================================ */
+
+/* Give the lower section a little more breathing room */
+.integrity-view .chain-intro {
+    margin-top: 45px !important;
+    margin-bottom: 24px !important;
+    padding-bottom: 24px !important;
+}
+
+/* Chain area */
+.integrity-view .integrity-chain-stage {
+    padding: 28px 0 45px !important;
+}
+
+/* Status heading above chain */
+.integrity-view .chain-status-line {
+    margin-bottom: 38px !important;
+}
+
+/* Give the actual blockchain more horizontal room */
+.integrity-chain-visual,
+.chain-links,
+.integrity-links {
+    width: 100%;
+    max-width: 650px;
+}
+
+/* Individual links shouldn't feel squeezed together */
+.chain-link,
+.integrity-link {
+    min-width: 125px;
 }
