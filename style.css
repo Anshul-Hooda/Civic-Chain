@@ -4197,13 +4197,16 @@ select:focus-visible {
 /* ---------- WHOLE SCROLL ---------- */
 
 .civic-scroll {
-    --scroll-ink: #d8d0bd;
-    --scroll-muted: rgba(216, 208, 189, 0.55);
-    --scroll-paper: #111016;
-    --scroll-paper-deep: #09090d;
+    --scroll-ink: #292923;
+    --scroll-muted: rgba(67, 61, 50, 0.62);
+
+    --scroll-paper: #f3ecdd;
+    --scroll-paper-deep: #ded3bf;
+
     --scroll-wine: #541d2d;
     --scroll-wine-dark: #2b0d17;
 
+    /* KEEP EVERYTHING BELOW THIS AS IT ALREADY IS */
     width: min(760px, calc(100% - 32px));
     margin: 64px auto 120px;
 
@@ -4226,10 +4229,11 @@ select:focus-visible {
     color: var(--scroll-ink);
 
     background:
-        radial-gradient(
-            circle at 12% 8%,
-            rgba(91, 55, 76, 0.14),
-            transparent 28%
+          
+        repeating-linear-gradient(
+            0deg,
+            rgba(66, 58, 43, 0.025) 0 1px,
+            transparent 1px 5px
         ),
         radial-gradient(
             circle at 88% 65%,
