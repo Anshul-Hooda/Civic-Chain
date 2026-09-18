@@ -134,13 +134,13 @@ img {
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #26323c;
+    background: #f3ecdd;
     border: 2px solid #080d11;
     border-radius: 20px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #34444f;
+    background: #e9e1d0;
 }
 
 
