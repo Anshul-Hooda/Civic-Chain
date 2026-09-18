@@ -45,7 +45,8 @@ const CITY_CENTERS = {
     gurgaon: [28.4595, 77.0266],
     rohtak: [28.8955, 76.6066]
 };
-const CITY_AREAS = {
+
+ const CITY_AREAS = {
     delhi: [
         "Rohini",
         "Pitampura",
@@ -73,45 +74,13 @@ const CITY_AREAS = {
         "Mehrauli",
         "Vasant Kunj",
         "Others"
-    ],
-
-    "new delhi": [
-        "Connaught Place / New Delhi",
-        "Civil Lines",
-        "Karol Bagh",
-        "Others"
-    ],
-
-    sonipat: [
-        "Sonipat",
-        "Murthal",
-        "Gohana",
-        "Kundli",
-        "Others"
-    ],
-
-    gurugram: [
-        "Gurugram",
-        "DLF Phase 1",
-        "DLF Phase 2",
-        "DLF Phase 3",
-        "Sohna Road",
-        "Golf Course Road",
-        "Manesar",
-        "Others"
-    ],
-
-    gurgaon: [
-        "Gurugram",
-        "DLF Phase 1",
-        "DLF Phase 2",
-        "DLF Phase 3",
-        "Sohna Road",
-        "Golf Course Road",
-        "Manesar",
-        "Others"
     ]
-};
+};      
+
+   
+    
+    
+        
 
 let allComplaints = [];
 let blockchainHashesByComplaintId = new Map();
@@ -12156,7 +12125,7 @@ async function initializeCityfile() {
     initializeMapFilters();
 
     initializeComplaintForm();
-
+    initializeAreaSelect();
     initializeCityDepartmentLink();
 
     initializeEvidencePreview();
