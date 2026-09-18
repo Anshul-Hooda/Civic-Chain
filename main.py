@@ -235,13 +235,7 @@ def ensure_reference_data():
     "Delhi",
     "Sonipat",
     "Gurugram",
-    "Rohtak",
-    "Faridabad",
-    "Ghaziabad",
-    "Noida",
-    "Panipat",
-    "Karnal",
-    "Bahadurgarh",
+    
 ]
 
         categories = [
