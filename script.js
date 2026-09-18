@@ -45,6 +45,36 @@ const CITY_CENTERS = {
     gurgaon: [28.4595, 77.0266],
     rohtak: [28.8955, 76.6066]
 };
+const CITY_AREAS = {
+    delhi: [
+        "Rohini",
+        "Pitampura",
+        "Shalimar Bagh",
+        "Model Town",
+        "Civil Lines",
+        "Karol Bagh",
+        "Patel Nagar",
+        "Rajinder Nagar",
+        "Connaught Place / New Delhi",
+        "Shahdara",
+        "Laxmi Nagar",
+        "Preet Vihar",
+        "Mayur Vihar",
+        "Vivek Vihar",
+        "Dwarka",
+        "Najafgarh",
+        "Janakpuri",
+        "Vikaspuri",
+        "Uttam Nagar",
+        "Narela",
+        "Bawana",
+        "Sangam Vihar",
+        "Saket",
+        "Mehrauli",
+        "Vasant Kunj",
+        "Others"
+    ]
+};
 
 
 let allComplaints = [];
