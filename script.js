@@ -942,88 +942,30 @@ async function openCitykeeperAuth() {
    NAVIGATION
    ============================================================ */
 function showView(viewName) {
-    const requested =
-        document.querySelector(
-            `[data-view-name="${viewName}"]`
+    const requested = document.querySelector(
+        `[data-view-name="${viewName}"]`
+    );
+
+    if (!requested) return;
+
+    document.querySelectorAll(".view").forEach(view => {
+        view.classList.toggle(
+            "active-view",
+            view === requested
         );
+    });
 
-    if (!requested) {
-        return;
-    }
+    document.querySelectorAll(".nav-link").forEach(button => {
+        button.classList.toggle(
+            "active",
+            button.dataset.view === viewName
+        );
+    });
 
-    const isMobile =
-        window.matchMedia("(max-width: 680px)").matches;
-
-    // MOBILE:
-    // Home/archive/track/integrity/profile are part of the
-    // continuous page. Report + map are made visible when selected.
-    if (isMobile) {
-
-        if (
-    viewName === "report" ||
-    viewName === "map"
-) {
-    document
-        .querySelectorAll("#reportView, #mapView")
-        .forEach(view => {
-            view.classList.remove("active-view");
-        });
-
-    requested.classList.add("active-view");
-}
-
-        // Wait until the browser has laid out the section
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-
-                const header =
-                    document.querySelector(".site-header");
-
-                const headerHeight =
-                    header?.offsetHeight || 0;
-
-                const targetTop =
-                    requested.getBoundingClientRect().top +
-                    window.pageYOffset -
-                    headerHeight -
-                    8;
-
-                window.scrollTo({
-                    top: targetTop,
-                    behavior: "smooth"
-                });
-            });
-        });
-
-    }
-
-    // DESKTOP:
-    // retain the original one-view-at-a-time behaviour
-    else {
-
-        document
-            .querySelectorAll(".view")
-            .forEach(view => {
-                view.classList.toggle(
-                    "active-view",
-                    view === requested
-                );
-            });
-
-        window.scrollTo({
-            top: 0,
-            behavior: "auto"
-        });
-    }
-
-    document
-        .querySelectorAll(".nav-link")
-        .forEach(button => {
-            button.classList.toggle(
-                "active",
-                button.dataset.view === viewName
-            );
-        });
+    window.scrollTo({
+        top: 0,
+        behavior: "auto"
+    });
 
     if (viewName === "map") {
         setTimeout(() => {
