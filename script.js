@@ -7854,34 +7854,40 @@ function getLocation() {
         );
 }
 
-
 function locationPayloadFromForm() {
     const location =
         document
-            .getElementById(
-                "location"
-            )
+            .getElementById("location")
             ?.value
-            .trim()
-        || "";
+            .trim() || "";
+
+    const area =
+        document
+            .getElementById("area")
+            ?.value
+            .trim() || "";
+
+    let locationText = location;
+
+    if (area) {
+        locationText =
+            `Area: ${area}` +
+            (location ? ` | ${location}` : "");
+    }
 
     if (
-        Number.isFinite(
-            selectedLatitude
-        )
-        &&
-        Number.isFinite(
-            selectedLongitude
-        )
+        Number.isFinite(selectedLatitude) &&
+        Number.isFinite(selectedLongitude)
     ) {
         return (
-            `${location} | ` +
+            `${locationText} | ` +
             `Latitude: ${selectedLatitude}, ` +
             `Longitude: ${selectedLongitude}`
         );
     }
 
-    return location;
+    return locationText;
+}
 }/* ============================================================
    EVIDENCE + SUBMISSION
    ============================================================ */
