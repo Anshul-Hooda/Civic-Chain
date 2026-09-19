@@ -1178,13 +1178,13 @@ img {
     background:
         radial-gradient(
             circle at 15% 0,
-            rgba(99, 138, 161, 0.08),
+            rgba(110, 207, 120, 0.916),
             transparent 30%
         ),
         linear-gradient(
             180deg,
-            #0d141a,
-            #090e13 75%
+            #294b65c4,
+            #5a173d 75%
         );
 }
 
