@@ -4,7 +4,224 @@
 <head>
     <meta charset="UTF-8">
 
-    <meta
+    <meta/* =========================================================
+   CITYFILE — ANIMATED CIVIC NETWORK BACKGROUND
+   ========================================================= */
+
+.city-world {
+    position: relative;
+    overflow: hidden;
+}
+
+/* Background layer */
+
+.civic-network-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+/* Soft digital atmosphere */
+
+.civic-network-bg::before {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    background:
+        radial-gradient(
+            circle at 25% 35%,
+            rgba(70, 180, 255, 0.13),
+            transparent 25%
+        ),
+        radial-gradient(
+            circle at 75% 30%,
+            rgba(80, 220, 190, 0.10),
+            transparent 28%
+        );
+    animation: civicAtmosphere 12s ease-in-out infinite alternate;
+}
+
+/* Network dots */
+
+.network-dot {
+    position: absolute;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(130, 220, 255, 0.9);
+    box-shadow:
+        0 0 8px rgba(100, 210, 255, 0.8),
+        0 0 22px rgba(100, 210, 255, 0.35);
+    animation: civicPulse 3s ease-in-out infinite;
+}
+
+/* Dot positions */
+
+.dot-1 {
+    left: 12%;
+    top: 25%;
+    animation-delay: 0s;
+}
+
+.dot-2 {
+    left: 27%;
+    top: 42%;
+    animation-delay: 0.8s;
+}
+
+.dot-3 {
+    left: 42%;
+    top: 22%;
+    animation-delay: 1.4s;
+}
+
+.dot-4 {
+    left: 58%;
+    top: 35%;
+    animation-delay: 0.4s;
+}
+
+.dot-5 {
+    left: 72%;
+    top: 20%;
+    animation-delay: 1.8s;
+}
+
+.dot-6 {
+    left: 82%;
+    top: 48%;
+    animation-delay: 1s;
+}
+
+.dot-7 {
+    left: 62%;
+    top: 62%;
+    animation-delay: 2.2s;
+}
+
+.dot-8 {
+    left: 35%;
+    top: 65%;
+    animation-delay: 0.5s;
+}
+
+/* Connecting lines */
+
+.network-line {
+    position: absolute;
+    height: 1px;
+    transform-origin: left center;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(100, 210, 255, 0.28),
+        transparent
+    );
+    opacity: 0.6;
+    animation: networkFlow 5s ease-in-out infinite;
+}
+
+.line-1 {
+    width: 22%;
+    left: 12%;
+    top: 25%;
+    transform: rotate(22deg);
+}
+
+.line-2 {
+    width: 20%;
+    left: 27%;
+    top: 42%;
+    transform: rotate(-24deg);
+    animation-delay: 1s;
+}
+
+.line-3 {
+    width: 20%;
+    left: 58%;
+    top: 35%;
+    transform: rotate(-25deg);
+    animation-delay: 2s;
+}
+
+.line-4 {
+    width: 25%;
+    left: 35%;
+    top: 65%;
+    transform: rotate(-20deg);
+    animation-delay: 3s;
+}
+
+/* Slow movement */
+
+@keyframes civicPulse {
+
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: scale(0.8);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1.5);
+    }
+
+}
+
+@keyframes networkFlow {
+
+    0%,
+    100% {
+        opacity: 0.25;
+    }
+
+    50% {
+        opacity: 0.75;
+    }
+
+}
+
+@keyframes civicAtmosphere {
+
+    0% {
+        transform: translate3d(-2%, -1%, 0) scale(1);
+    }
+
+    100% {
+        transform: translate3d(2%, 2%, 0) scale(1.08);
+    }
+
+}
+
+/* Keep the actual city and UI above the network */
+
+.city-environment,
+.city-sky,
+.sky-glow,
+.city-blocks,
+.street-side,
+.tree,
+.city-wires,
+.road,
+.footpath,
+.streetlight,
+.city-car,
+.city-auto,
+.physical-pothole,
+.water-leak,
+.garbage-bin,
+.city-depth-haze,
+.city-vignette,
+.city-introduction,
+.city-record-marker,
+.city-pulse,
+.city-explorer-bar {
+    position: relative;
+    z-index: 2;
+}
         name="viewport"
         content="width=device-width, initial-scale=1.0"
     >
@@ -189,24 +406,7 @@
         >
 
             <div class="city-world">
-                <!-- ANIMATED CIVIC NETWORK BACKGROUND -->
-<div class="civic-network-bg" aria-hidden="true">
-
-    <span class="network-dot dot-1"></span>
-    <span class="network-dot dot-2"></span>
-    <span class="network-dot dot-3"></span>
-    <span class="network-dot dot-4"></span>
-    <span class="network-dot dot-5"></span>
-    <span class="network-dot dot-6"></span>
-    <span class="network-dot dot-7"></span>
-    <span class="network-dot dot-8"></span>
-
-    <span class="network-line line-1"></span>
-    <span class="network-line line-2"></span>
-    <span class="network-line line-3"></span>
-    <span class="network-line line-4"></span>
-
-</div>
+               
 
 
                 <!-- =================================================
