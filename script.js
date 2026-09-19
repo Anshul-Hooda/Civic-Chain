@@ -78,6 +78,9 @@ const CITY_AREAS = {
 
 
 let allComplaints = [];
+let faultlineCases = [];
+let activeFaultlineId = null;
+let closureChallengeSourceId = null;
 let blockchainHashesByComplaintId = new Map();
 let activeArchiveFilter = "all";
 let activeArchiveBookIndex = 0;
@@ -960,6 +963,10 @@ function showView(viewName) {
         renderIntegrityEvents();
     }
 
+    if (viewName === "faultline") {
+        renderFaultline();
+    }
+
     if (viewName === "authority") {
         renderAuthorityDashboard();
     }
@@ -1526,6 +1533,13 @@ function renderAuthorityDashboard() {
         .filter(authoritySearchMatches);
 
     records = records.sort((a, b) => {
+        const escalationDifference =
+            faultlineEscalationRank(b) - faultlineEscalationRank(a);
+
+        if (escalationDifference !== 0) {
+            return escalationDifference;
+        }
+
         const aTime = Date.parse(a.created_at || "") || 0;
         const bTime = Date.parse(b.created_at || "") || 0;
         return authoritySortOrder === "newest" ? bTime - aTime : aTime - bTime;
@@ -1550,7 +1564,16 @@ function renderAuthorityDashboard() {
         const canStartWork = ["submitted", "open", "acknowledged", "disputed"].includes(status);
 
         return `
-            <article class="authority-record-card ${authorityCardClass(complaint)}">
+            <article class="authority-record-card ${authorityCardClass(complaint)} ${faultlineEscalationRank(complaint) ? "faultline-escalated" : ""}">
+                ${faultlineEscalationRank(complaint) ? `
+                    <div class="authority-faultline-alert">
+                        <span>⚠</span>
+                        <div>
+                            <small>${faultlineEscalationRank(complaint) >= 2 ? "CHRONIC FAULTLINE" : "RECURRING / UNRESOLVED REVIEW"}</small>
+                            <strong>RELATED CIVIC HISTORY REQUIRES ATTENTION</strong>
+                        </div>
+                        <button type="button" onclick="window.showView('faultline')">VIEW FAULTLINE →</button>
+                    </div>` : ""}
                 <div class="authority-record-topline">
                     <span class="authority-record-id">${escapeHTML(formatComplaintId(id))}</span>
                     <span class="authority-record-age">OPEN ${escapeHTML(formatDuration(complaintAgeMs(complaint)))}</span>
@@ -6042,6 +6065,557 @@ function initializeCitykeepers() {
 }
 
 
+
+/* ============================================================
+   FAULTLINE — POST-CLOSURE ACCOUNTABILITY
+   ============================================================ */
+
+function faultlineLinks(complaint) {
+    return Array.isArray(complaint?.faultline_links)
+        ? complaint.faultline_links
+        : [];
+}
+
+function incomingFaultlineLinks(complaint) {
+    return faultlineLinks(complaint).filter(item => item?.role === "new");
+}
+
+function outgoingFaultlineLinks(complaint) {
+    return faultlineLinks(complaint).filter(item => item?.role === "previous");
+}
+
+function faultlineEscalationRank(complaint) {
+    const value = String(complaint?.faultline_escalation || "NORMAL").toUpperCase();
+    if (value === "CHRONIC") return 2;
+    if (value === "REPEAT") return 1;
+    return 0;
+}
+
+function faultlineSuggestedLabel(value) {
+    const labels = {
+        possible_recurrence: "POSSIBLE RECURRENCE",
+        possible_unresolved_continuation: "POSSIBLE UNRESOLVED CONTINUATION",
+        historically_related: "HISTORICALLY RELATED",
+        recurrence: "RECURRENCE",
+        unresolved_continuation: "UNRESOLVED CONTINUATION",
+        new_related_fault: "NEW RELATED FAULT",
+        unrelated: "UNRELATED",
+        undetermined: "UNDETERMINED"
+    };
+    return labels[String(value || "").toLowerCase()] || "POSSIBLE RELATIONSHIP";
+}
+
+function formatFaultlineDistance(value) {
+    const distance = Number(value);
+    if (!Number.isFinite(distance)) return "SAME RECORDED LOCATION";
+    if (distance < 10) return `${distance.toFixed(1)} M APART`;
+    return `${Math.round(distance)} M APART`;
+}
+
+function formatFaultlineSurvival(days) {
+    const value = Number(days);
+    if (!Number.isFinite(value)) return "NOT ESTABLISHED";
+
+    const totalHours = Math.max(0, Math.round(value * 24));
+    const dayCount = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+
+    if (dayCount > 0) return `${dayCount}D ${hours}H`;
+    return `${totalHours}H`;
+}
+
+async function loadFaultlineCases({ silent = true } = {}) {
+    try {
+        const payload = await fetchJSON("/faultline");
+        faultlineCases = Array.isArray(payload) ? payload : [];
+        return faultlineCases;
+    }
+    catch (error) {
+        console.error("Faultline loading error:", error);
+        faultlineCases = [];
+        if (!silent) showToast("Could not load FAULTLINE history.");
+        return [];
+    }
+}
+
+function faultlineCaseById(faultlineId) {
+    const id = Number(faultlineId);
+    return faultlineCases.find(item => Number(item?.faultline_id) === id) || null;
+}
+
+function faultlineEvidenceImage(complaint, kind = "citizen") {
+    const evidence = Array.isArray(complaint?.evidence) ? complaint.evidence : [];
+    const attempts = Array.isArray(complaint?.resolution_attempts) ? complaint.resolution_attempts : [];
+
+    if (kind === "repair") {
+        const proof = attempts.length ? attempts[attempts.length - 1]?.proof : null;
+        return proof?.image || proof?.file_url || "";
+    }
+
+    const citizen = evidence.find(item =>
+        String(item?.evidence_type || "").toLowerCase() === "citizen_report"
+    );
+    return citizen?.file_url || "";
+}
+
+function faultlineExhibit(label, title, url, fallback) {
+    return `
+        <figure class="faultline-exhibit">
+            <figcaption><small>${escapeHTML(label)}</small><strong>${escapeHTML(title)}</strong></figcaption>
+            ${url
+                ? `<img src="${escapeHTML(publicFileURL(url))}" alt="${escapeHTML(title)}">`
+                : `<div class="faultline-exhibit-empty">${escapeHTML(fallback)}</div>`}
+        </figure>`;
+}
+
+function faultlineStatementLedger(caseRecord) {
+    const oldComplaint = caseRecord?.previous_complaint;
+    const newComplaint = caseRecord?.new_complaint;
+    const entries = [];
+
+    if (oldComplaint?.created_at) {
+        entries.push({
+            at: oldComplaint.created_at,
+            role: "CITIZEN",
+            text: `${formatComplaintId(oldComplaint.complaint_id)} reported: ${oldComplaint.description || getCategoryName(oldComplaint)}`
+        });
+    }
+
+    const oldAttempts = Array.isArray(oldComplaint?.resolution_attempts)
+        ? oldComplaint.resolution_attempts
+        : [];
+    oldAttempts.forEach(attempt => {
+        if (attempt?.proof) {
+            entries.push({
+                at: attempt.proof.created_at || attempt.proof.capturedAt,
+                role: "AUTHORITY",
+                text: `${attempt.repair_passport_id || "Repair"}: ${attempt.proof.note || "Repair proof submitted."}`
+            });
+        }
+        if (attempt?.review) {
+            entries.push({
+                at: attempt.review.created_at || attempt.review.timestamp,
+                role: "CITIZEN",
+                text: `Resolution ${String(attempt.review.action || attempt.review.decision || "reviewed").toLowerCase()}.`
+            });
+        }
+    });
+
+    if (newComplaint?.created_at) {
+        entries.push({
+            at: newComplaint.created_at,
+            role: "CITIZEN",
+            text: `${formatComplaintId(newComplaint.complaint_id)} created after the earlier record.`
+        });
+    }
+
+    if (caseRecord?.created_at) {
+        entries.push({
+            at: caseRecord.created_at,
+            role: "CITYFILE",
+            text: `Historical relationship detected: ${faultlineSuggestedLabel(caseRecord.suggested_relation)}.`
+        });
+    }
+
+    if (caseRecord?.classified_at) {
+        entries.push({
+            at: caseRecord.classified_at,
+            role: "AUTHORITY",
+            text: `${faultlineSuggestedLabel(caseRecord.authority_classification)} — ${caseRecord.authority_explanation || "No explanation recorded."}`
+        });
+    }
+
+    entries.sort((a, b) => (Date.parse(a.at || "") || 0) - (Date.parse(b.at || "") || 0));
+
+    return entries.map(entry => `
+        <div class="faultline-ledger-event">
+            <span></span>
+            <div>
+                <small>${escapeHTML(entry.role)} · ${escapeHTML(formatDate(entry.at))}</small>
+                <p>${escapeHTML(entry.text)}</p>
+            </div>
+        </div>`).join("");
+}
+
+function renderFaultlineDetail(faultlineId) {
+    const detail = document.getElementById("faultlineDetail");
+    const caseRecord = faultlineCaseById(faultlineId);
+    if (!detail || !caseRecord) return;
+
+    activeFaultlineId = Number(faultlineId);
+    const oldComplaint = caseRecord.previous_complaint;
+    const newComplaint = caseRecord.new_complaint;
+    const finalRelation = caseRecord.authority_classification || caseRecord.suggested_relation;
+    const isAuthority = Boolean(citykeeperCurrentUser?.is_authority);
+
+    const oldCitizenImage = faultlineEvidenceImage(oldComplaint, "citizen");
+    const repairImage = faultlineEvidenceImage(oldComplaint, "repair");
+    const newCitizenImage = faultlineEvidenceImage(newComplaint, "citizen");
+    const previousAttempts = Array.isArray(oldComplaint?.resolution_attempts)
+        ? oldComplaint.resolution_attempts
+        : [];
+    const previousRepair = previousAttempts.length
+        ? previousAttempts[previousAttempts.length - 1]
+        : null;
+    const closureDebt = caseRecord.closure_challenged_at && !isVerified(newComplaint)
+        ? 1
+        : 0;
+
+    const classificationForm = isAuthority
+        ? `
+            <form class="faultline-classification-form" data-faultline-classify="${Number(caseRecord.faultline_id)}">
+                <div>
+                    <small>AUTHORITY REVIEW</small>
+                    <h4>Explain the difference.</h4>
+                    <p>CITYFILE found a relationship. The department must explain what inspection actually established.</p>
+                </div>
+                <div class="faultline-choice-grid">
+                    <label><input type="radio" name="classification" value="recurrence" required><span><strong>RECURRENCE</strong><small>The earlier fix held, then the problem returned.</small></span></label>
+                    <label><input type="radio" name="classification" value="unresolved_continuation"><span><strong>UNRESOLVED CONTINUATION</strong><small>The original issue never fully disappeared.</small></span></label>
+                    <label><input type="radio" name="classification" value="new_related_fault"><span><strong>NEW RELATED FAULT</strong><small>Different failure affecting the same or nearby infrastructure.</small></span></label>
+                    <label><input type="radio" name="classification" value="unrelated"><span><strong>UNRELATED</strong><small>Proximity is coincidental.</small></span></label>
+                    <label><input type="radio" name="classification" value="undetermined"><span><strong>UNDETERMINED</strong><small>More inspection is required.</small></span></label>
+                </div>
+                <label class="faultline-explanation-field">
+                    <span>EXPLANATION</span>
+                    <textarea name="explanation" rows="4" required placeholder="Explain what changed between the earlier closure and the new report.">${escapeHTML(caseRecord.authority_explanation || "")}</textarea>
+                </label>
+                <button type="submit">ADD FINDING TO PUBLIC RECORD →</button>
+            </form>`
+        : `
+            <div class="faultline-public-review-note">
+                <small>AUTHORITY EXPLANATION</small>
+                <strong>${escapeHTML(caseRecord.authority_classification ? faultlineSuggestedLabel(caseRecord.authority_classification) : "AWAITING DEPARTMENT REVIEW")}</strong>
+                <p>${escapeHTML(caseRecord.authority_explanation || "No authority relationship finding has been added yet.")}</p>
+            </div>`;
+
+    detail.hidden = false;
+    detail.innerHTML = `
+        <div class="faultline-detail-topbar">
+            <div>
+                <small>FAULTLINE / FL-${String(caseRecord.faultline_id).padStart(5, "0")}</small>
+                <strong>${escapeHTML(faultlineSuggestedLabel(finalRelation))}</strong>
+            </div>
+            <button type="button" data-close-faultline-detail>×</button>
+        </div>
+
+        <div class="faultline-investigation-grid">
+            <article class="faultline-record-side previous">
+                <small>THE CLOSED / EARLIER RECORD</small>
+                <h3>${escapeHTML(formatComplaintId(oldComplaint?.complaint_id))}</h3>
+                <strong>${escapeHTML(getCategoryName(oldComplaint))}</strong>
+                <p>${escapeHTML(publicLocation(oldComplaint))}</p>
+                <span>${escapeHTML(formatDate(oldComplaint?.created_at))}</span>
+                <button type="button" onclick="window.openCase(${Number(oldComplaint?.complaint_id)})">OPEN EARLIER FILE →</button>
+            </article>
+
+            <div class="faultline-fracture">
+                <span class="faultline-node closed"></span>
+                <small>EARLIER STATE</small>
+                <strong>${isVerified(oldComplaint) ? "CLOSED / VERIFIED" : escapeHTML(homeStatusLabel(oldComplaint))}</strong>
+                <i></i>
+                <b>${escapeHTML(formatFaultlineSurvival(caseRecord.days_since_closure))}</b>
+                <i></i>
+                <span class="faultline-node recurrence"></span>
+                <small>NEW EVIDENCE</small>
+                <strong>${escapeHTML(formatFaultlineDistance(caseRecord.distance_meters))}</strong>
+            </div>
+
+            <article class="faultline-record-side current">
+                <small>THE NEW RECORD</small>
+                <h3>${escapeHTML(formatComplaintId(newComplaint?.complaint_id))}</h3>
+                <strong>${escapeHTML(getCategoryName(newComplaint))}</strong>
+                <p>${escapeHTML(publicLocation(newComplaint))}</p>
+                <span>${escapeHTML(formatDate(newComplaint?.created_at))}</span>
+                <button type="button" onclick="window.openCase(${Number(newComplaint?.complaint_id)})">OPEN NEW FILE →</button>
+            </article>
+        </div>
+
+        <section class="faultline-signal-board">
+            <div><small>LOCATION</small><strong>${escapeHTML(caseRecord.location_relation || "UNKNOWN")}</strong><span>${escapeHTML(formatFaultlineDistance(caseRecord.distance_meters))}</span></div>
+            <div><small>CATEGORY</small><strong>${escapeHTML(caseRecord.category_relation || "UNKNOWN")}</strong><span>${escapeHTML(getCategoryName(newComplaint))}</span></div>
+            <div><small>TIME</small><strong>${escapeHTML(caseRecord.time_relation || "UNKNOWN")}</strong><span>${escapeHTML(formatFaultlineSurvival(caseRecord.days_since_closure))}</span></div>
+            <div><small>INFRASTRUCTURE</small><strong>NOT YET ESTABLISHED</strong><span>Requires inspection / future asset identity.</span></div>
+        </section>
+
+        <section class="faultline-exhibits">
+            ${faultlineExhibit("EXHIBIT A", "Original citizen evidence", oldCitizenImage, "No original image stored")}
+            ${faultlineExhibit("EXHIBIT B", "Earlier repair proof", repairImage, "No authority repair image stored")}
+            ${faultlineExhibit("EXHIBIT C", "New citizen evidence", newCitizenImage, "No new image stored")}
+        </section>
+
+        <section class="faultline-repair-passport">
+            <div>
+                <small>REPAIR PASSPORT</small>
+                <strong>${escapeHTML(previousRepair?.repair_passport_id || "NO PASSPORT YET")}</strong>
+                <p>Every authority repair attempt keeps its own identity instead of disappearing inside a closed complaint.</p>
+            </div>
+            <div class="faultline-passport-grid">
+                <span><small>LINKED FILE</small><b>${escapeHTML(formatComplaintId(oldComplaint?.complaint_id))}</b></span>
+                <span><small>REPAIR RECORDED</small><b>${escapeHTML(previousRepair?.proof?.capturedAt ? formatDate(previousRepair.proof.capturedAt) : "NOT RECORDED")}</b></span>
+                <span><small>CITIZEN CHECK</small><b>${escapeHTML(previousRepair?.review?.action === "verified" ? "VERIFIED" : "NOT VERIFIED")}</b></span>
+                <span><small>REPAIR SURVIVAL</small><b>${escapeHTML(formatFaultlineSurvival(caseRecord.days_since_closure))}</b></span>
+            </div>
+        </section>
+
+        <section class="faultline-memory-contrast">
+            <article>
+                <small>WITHOUT CIVIC MEMORY</small>
+                <strong>${escapeHTML(formatComplaintId(newComplaint?.complaint_id))} · another water/civic report</strong>
+                <p>The new file could look isolated from everything that happened before it.</p>
+            </article>
+            <article>
+                <small>WITH CITYFILE</small>
+                <strong>Previous closure + repair proof + ${escapeHTML(formatFaultlineSurvival(caseRecord.days_since_closure))} survival + new evidence</strong>
+                <p>The later report becomes evidence in the life of the earlier repair instead of being suppressed as noise.</p>
+            </article>
+        </section>
+
+        ${classificationForm}
+
+        <section class="faultline-statement-ledger">
+            <div class="faultline-panel-heading">
+                <small>STATEMENT LEDGER</small>
+                <strong>What was claimed, when, and what happened next.</strong>
+            </div>
+            <div class="faultline-ledger-events">${faultlineStatementLedger(caseRecord)}</div>
+        </section>
+
+        <section class="faultline-autopsy">
+            <small>CIVIC AUTOPSY · LIVE</small>
+            <div>
+                <span><b>2</b><small>LINKED FILES</small></span>
+                <span><b>${escapeHTML(String((oldComplaint?.resolution_attempts || []).length + (newComplaint?.resolution_attempts || []).length))}</b><small>REPAIR ATTEMPTS</small></span>
+                <span><b>${escapeHTML(formatFaultlineSurvival(caseRecord.days_since_closure))}</b><small>FIRST REPAIR SURVIVAL</small></span>
+                <span><b>${isVerified(newComplaint) ? "VERIFIED" : "OPEN"}</b><small>CURRENT OUTCOME</small></span>
+            </div>
+            <div class="faultline-closure-debt ${closureDebt ? "open" : "clear"}">
+                <span>CLOSURE DEBT</span>
+                <strong>${closureDebt ? "1 UNANSWERED POST-CLOSURE CHALLENGE" : "NO OPEN CLOSURE CHALLENGE"}</strong>
+                <p>${closureDebt ? "The earlier closure now carries an accountability obligation until the linked issue is explained and re-verified." : "This linked history currently has no unresolved post-closure obligation."}</p>
+            </div>
+            <p>When this chain reaches final citizen verification, this becomes the permanent post-closure case history.</p>
+        </section>`;
+
+    detail.querySelector('[data-close-faultline-detail]')?.addEventListener('click', () => {
+        detail.hidden = true;
+        activeFaultlineId = null;
+    });
+
+    detail.querySelector('[data-faultline-classify]')?.addEventListener('submit', submitFaultlineClassification);
+    detail.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function submitFaultlineClassification(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const faultlineId = Number(form.dataset.faultlineClassify);
+    const data = new FormData(form);
+    const classification = String(data.get("classification") || "");
+    const explanation = String(data.get("explanation") || "").trim();
+
+    if (!classification || !explanation) {
+        showToast("Choose a relationship and explain what inspection established.");
+        return;
+    }
+
+    const button = form.querySelector('[type="submit"]');
+    if (button) button.disabled = true;
+
+    try {
+        const updated = await fetchJSON(`/faultline/${faultlineId}/classify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ classification, explanation })
+        });
+
+        const index = faultlineCases.findIndex(item => Number(item.faultline_id) === faultlineId);
+        if (index >= 0) faultlineCases[index] = updated;
+
+        await loadComplaints({ silent: true });
+        renderFaultline();
+        renderFaultlineDetail(faultlineId);
+        showToast("Authority relationship finding added to the public record.");
+    }
+    catch (error) {
+        console.error("Faultline classification error:", error);
+        showToast(error.message || "Could not save the authority finding.");
+    }
+    finally {
+        if (button) button.disabled = false;
+    }
+}
+
+function faultlineGroupKey(caseRecord) {
+    const complaint = caseRecord?.new_complaint || caseRecord?.previous_complaint;
+    const coords = complaintCoordinates(complaint);
+    if (Array.isArray(coords)) {
+        return `${getCategoryName(complaint)}|${coords[0].toFixed(3)}|${coords[1].toFixed(3)}`;
+    }
+    return `${getCategoryName(complaint)}|${publicLocation(complaint).toLowerCase()}`;
+}
+
+function renderFaultline() {
+    const list = document.getElementById("faultlineCaseList");
+    if (!list) return;
+
+    const active = faultlineCases.filter(item => !item.authority_classification || item.authority_classification === "undetermined");
+    const ghosts = faultlineCases.filter(item => Boolean(item.closure_challenged_at));
+
+    const groups = new Map();
+    faultlineCases.forEach(item => {
+        const key = faultlineGroupKey(item);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(item);
+    });
+    const chronicGroups = Array.from(groups.values()).filter(items => items.length >= 2);
+
+    const watched = allComplaints.filter(complaint => complaint?.closure_watch?.active);
+
+    const counters = {
+        faultlineActiveCount: active.length,
+        faultlineChronicCount: chronicGroups.length,
+        faultlineGhostCount: ghosts.length,
+        faultlineWatchCount: watched.length
+    };
+    Object.entries(counters).forEach(([id, value]) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = Number(value).toLocaleString("en-IN");
+    });
+
+    if (!faultlineCases.length) {
+        list.innerHTML = `
+            <div class="faultline-empty">
+                <small>NO FAULTLINES YET</small>
+                <strong>No related civic history has been detected.</strong>
+                <p>When a report appears near a matching current or previously closed problem, CITYFILE will preserve the relationship here.</p>
+            </div>`;
+    }
+    else {
+        list.innerHTML = faultlineCases.map(caseRecord => {
+            const oldComplaint = caseRecord.previous_complaint;
+            const newComplaint = caseRecord.new_complaint;
+            const relation = caseRecord.authority_classification || caseRecord.suggested_relation;
+            return `
+                <article class="faultline-card ${caseRecord.closure_challenged_at ? "ghost" : ""}">
+                    <div class="faultline-card-topline">
+                        <span>FAULTLINE / FL-${String(caseRecord.faultline_id).padStart(5, "0")}</span>
+                        <strong>${escapeHTML(faultlineSuggestedLabel(relation))}</strong>
+                    </div>
+                    <div class="faultline-card-category">${escapeHTML(getCategoryName(newComplaint))}</div>
+                    <div class="faultline-card-linkage">
+                        <div>
+                            <small>EARLIER FILE</small>
+                            <strong>${escapeHTML(formatComplaintId(oldComplaint?.complaint_id))}</strong>
+                            <span>${escapeHTML(isVerified(oldComplaint) ? "CLOSED / VERIFIED" : homeStatusLabel(oldComplaint))}</span>
+                        </div>
+                        <div class="faultline-card-bridge">
+                            <i></i>
+                            <b>${escapeHTML(formatFaultlineSurvival(caseRecord.days_since_closure))}</b>
+                            <i></i>
+                            <small>${escapeHTML(formatFaultlineDistance(caseRecord.distance_meters))}</small>
+                        </div>
+                        <div>
+                            <small>NEW FILE</small>
+                            <strong>${escapeHTML(formatComplaintId(newComplaint?.complaint_id))}</strong>
+                            <span>${escapeHTML(homeStatusLabel(newComplaint))}</span>
+                        </div>
+                    </div>
+                    <div class="faultline-card-signals">
+                        <span>✓ ${escapeHTML(caseRecord.category_relation || "CATEGORY")}</span>
+                        <span>✓ ${escapeHTML(caseRecord.location_relation || "LOCATION")}</span>
+                        <span>${caseRecord.closure_challenged_at ? "⚠ CLOSURE CHALLENGED" : "↳ RELATED HISTORY"}</span>
+                    </div>
+                    <button type="button" data-open-faultline="${Number(caseRecord.faultline_id)}">OPEN INVESTIGATION →</button>
+                </article>`;
+        }).join("");
+    }
+
+    list.querySelectorAll('[data-open-faultline]').forEach(button => {
+        button.addEventListener('click', () => renderFaultlineDetail(Number(button.dataset.openFaultline)));
+    });
+
+    const chronicList = document.getElementById("faultlineChronicList");
+    if (chronicList) {
+        chronicList.innerHTML = chronicGroups.length
+            ? chronicGroups.map(items => {
+                const latest = items[0]?.new_complaint;
+                const survivals = items
+                    .map(item => Number(item.days_since_closure))
+                    .filter(Number.isFinite);
+                const average = survivals.length
+                    ? survivals.reduce((sum, value) => sum + value, 0) / survivals.length
+                    : null;
+                return `
+                    <button type="button" class="faultline-mini-record" data-open-faultline="${Number(items[0].faultline_id)}">
+                        <span><small>${escapeHTML(getCategoryName(latest))}</small><strong>${escapeHTML(publicLocation(latest))}</strong></span>
+                        <span><b>${items.length + 1}</b><small>LINKED RECORDS</small></span>
+                        <span><b>${escapeHTML(formatFaultlineSurvival(average))}</b><small>AVG. SURVIVAL</small></span>
+                    </button>`;
+            }).join("")
+            : `<p class="faultline-mini-empty">No location has formed a multi-recurrence chain yet.</p>`;
+
+        chronicList.querySelectorAll('[data-open-faultline]').forEach(button => {
+            button.addEventListener('click', () => renderFaultlineDetail(Number(button.dataset.openFaultline)));
+        });
+    }
+
+    const watchList = document.getElementById("faultlineWatchList");
+    if (watchList) {
+        watchList.innerHTML = watched.length
+            ? watched.map(complaint => `
+                <button type="button" class="faultline-mini-record watch" onclick="window.openCase(${Number(complaint.complaint_id)})">
+                    <span><small>${escapeHTML(formatComplaintId(complaint.complaint_id))}</small><strong>${escapeHTML(getCategoryName(complaint))}</strong></span>
+                    <span><b>${escapeHTML(Number(complaint.closure_watch?.days || 0).toFixed(1))}D</b><small>OBSERVED</small></span>
+                    <span><b>${escapeHTML(Number(complaint.closure_watch?.remaining_days || 0).toFixed(1))}D</b><small>WATCH LEFT</small></span>
+                </button>`).join("")
+            : `<p class="faultline-mini-empty">No verified repair is currently inside the closure-watch window.</p>`;
+    }
+
+    if (activeFaultlineId && faultlineCaseById(activeFaultlineId)) {
+        renderFaultlineDetail(activeFaultlineId);
+    }
+}
+
+function beginClosureChallenge(complaintId) {
+    const complaint = complaintById(complaintId);
+    if (!complaint) return;
+
+    closureChallengeSourceId = Number(complaintId);
+    showView("report");
+
+    setTimeout(() => {
+        const city = document.getElementById("city");
+        const category = document.getElementById("category");
+        const department = document.getElementById("department");
+        const location = document.getElementById("location");
+        const description = document.getElementById("description");
+
+        if (city && complaint.city_id != null) {
+            city.value = String(complaint.city_id);
+            city.dispatchEvent(new Event("change"));
+        }
+        if (category && complaint.category_id != null) category.value = String(complaint.category_id);
+        if (department && complaint.department_id != null) department.value = String(complaint.department_id);
+        if (location) location.value = publicLocation(complaint);
+        if (description && !description.value.trim()) {
+            description.placeholder = `Describe what you can see now. This report will be checked against ${formatComplaintId(complaintId)}.`;
+        }
+
+        const coords = complaintCoordinates(complaint);
+        if (Array.isArray(coords)) {
+            initializeReportMap();
+            setReportPin(coords[0], coords[1]);
+            reportMap?.setView(coords, 16);
+        }
+
+        showToast(`Closure challenge started from ${formatComplaintId(complaintId)}. Submit current evidence as a new independent record.`);
+    }, 180);
+}
+
+window.renderFaultlineDetail = renderFaultlineDetail;
+window.beginClosureChallenge = beginClosureChallenge;
+
 /* ============================================================
    LOAD DATA + HOME
    ============================================================ */
@@ -6107,6 +6681,10 @@ async function loadComplaints({
             );
         }
 
+        // FAULTLINE is additive. If the relationship endpoint ever fails, the
+        // existing complaint/archive/authority experience still continues.
+        await loadFaultlineCases({ silent: true });
+
         // Citykeeper verification is only relevant for community-safe files.
         await Promise.all(
             allComplaints
@@ -6135,6 +6713,7 @@ async function loadComplaints({
         renderProfileFiles();
         renderIntegrityEvents();
         renderAuthorityDashboard();
+        renderFaultline();
         renderCitykeepers();
 
         const openOverlay = document.getElementById("caseOverlay");
@@ -8248,6 +8827,14 @@ function showSubmissionSuccess(
                 report to citizen verification.
             </p>
 
+            ${incomingFaultlineLinks(complaint).length ? `
+                <div class="submission-faultline-alert">
+                    <small>RELATED CIVIC HISTORY FOUND</small>
+                    <strong>${escapeHTML(faultlineSuggestedLabel(incomingFaultlineLinks(complaint)[0]?.suggested_relation))}</strong>
+                    <p>CITYFILE found a nearby matching historical record. Your report remains independent and has been linked for FAULTLINE review.</p>
+                    <button type="button" data-open-submission-faultline>VIEW FAULTLINE →</button>
+                </div>` : ""}
+
             <div class="submission-success-actions">
 
                 <button
@@ -8298,6 +8885,16 @@ function showSubmissionSuccess(
                 );
             }
         );
+
+    result
+        .querySelector("[data-open-submission-faultline]")
+        ?.addEventListener("click", () => {
+            const link = incomingFaultlineLinks(complaint)[0];
+            showView("faultline");
+            if (link?.faultline_id) {
+                setTimeout(() => renderFaultlineDetail(link.faultline_id), 80);
+            }
+        });
 
     result
         .querySelector(
@@ -8414,6 +9011,7 @@ async function submitComplaint(
         }
 
         // 4. Reset UI after everything succeeds
+        closureChallengeSourceId = null;
         resetComplaintForm();
 
         showSubmissionSuccess(
@@ -10710,6 +11308,22 @@ document.body.classList.add("case-open");
                 }
 
 
+                ${faultlineLinks(complaint).length ? `
+                    <section class="case-faultline-context">
+                        <small>FAULTLINE / RELATED CIVIC HISTORY</small>
+                        <strong>${escapeHTML(faultlineEscalationRank(complaint) >= 2 ? "CHRONIC HISTORY" : "RELATED RECORD DETECTED")}</strong>
+                        <p>This file is connected to ${faultlineLinks(complaint).length} historical relationship ${faultlineLinks(complaint).length === 1 ? "record" : "records"}. The original status history has not been rewritten.</p>
+                        <button type="button" data-case-open-faultline>VIEW FAULTLINE →</button>
+                    </section>` : ""}
+
+                ${verified ? `
+                    <section class="case-closure-challenge">
+                        <small>POST-CLOSURE RIGHT TO CHALLENGE</small>
+                        <strong>Seeing the problem again?</strong>
+                        <p>Create a new independent CITYFILE record. The system will compare it against this closure instead of silently reopening history.</p>
+                        <button type="button" data-challenge-closure>CHALLENGE THIS CLOSURE →</button>
+                    </section>` : ""}
+
                 <section class="case-record-section">
 
                     <div class="case-section-heading">
@@ -10775,6 +11389,20 @@ document.body.classList.add("case-open");
 
             </article>
         `;
+
+        body.querySelector("[data-case-open-faultline]")?.addEventListener("click", () => {
+            const link = faultlineLinks(complaint)[0];
+            closeCaseOverlay();
+            showView("faultline");
+            if (link?.faultline_id) {
+                setTimeout(() => renderFaultlineDetail(link.faultline_id), 80);
+            }
+        });
+
+        body.querySelector("[data-challenge-closure]")?.addEventListener("click", () => {
+            closeCaseOverlay();
+            beginClosureChallenge(complaint.complaint_id);
+        });
 
         document
             .getElementById(
@@ -11852,6 +12480,7 @@ function viewFromHash() {
         new Set([
             "home",
             "archive",
+            "faultline",
             "track",
             "profile",
             "citykeepers",
@@ -12225,6 +12854,11 @@ async function initializeCityfile() {
     initializeExternalRefreshButtons();
 
     initializeIntegrityInteractions();
+
+    document.getElementById("refreshFaultline")?.addEventListener("click", async () => {
+        await loadFaultlineCases({ silent: false });
+        renderFaultline();
+    });
 
     initializeCitykeepers();
 

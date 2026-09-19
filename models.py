@@ -707,3 +707,81 @@ class CitizenResolutionReview(Base):
     complaint = relationship("Complaint")
     attempt = relationship("AuthorityResolutionAttempt")
     user = relationship("User", foreign_keys=[verified_by_user])
+
+
+
+# =========================================================
+# 16. FAULTLINE RELATIONSHIPS
+# =========================================================
+
+class FaultlineRelationship(Base):
+    """
+    Links two independent CITYFILE complaints without merging or rewriting
+    either record. The relationship starts as a system-detected candidate and
+    can later be classified by an authorized department.
+    """
+
+    __tablename__ = "faultline_relationships"
+
+    faultline_id = Column(Integer, primary_key=True, index=True)
+
+    previous_complaint_id = Column(
+        Integer,
+        ForeignKey("complaints.complaint_id"),
+        nullable=False,
+        index=True
+    )
+
+    new_complaint_id = Column(
+        Integer,
+        ForeignKey("complaints.complaint_id"),
+        nullable=False,
+        index=True
+    )
+
+    # Workflow state: under_review / classified.
+    relationship_status = Column(
+        String(40),
+        nullable=False,
+        default="under_review"
+    )
+
+    # Rule-engine suggestion. This is deliberately not treated as truth.
+    suggested_relation = Column(String(60), nullable=False)
+
+    location_relation = Column(String(40), nullable=False)
+    category_relation = Column(String(40), nullable=False, default="EXACT")
+    time_relation = Column(String(40))
+
+    distance_meters = Column(Float)
+    days_since_closure = Column(Float)
+    previous_status = Column(String(40))
+
+    # A closure challenge is an append-only post-closure event. The original
+    # complaint itself stays historically closed/verified.
+    closure_challenged_at = Column(DateTime)
+
+    authority_classification = Column(String(60))
+    authority_explanation = Column(Text)
+    classified_by_user_id = Column(
+        Integer,
+        ForeignKey("users.user_id"),
+        nullable=True,
+        index=True
+    )
+    classified_at = Column(DateTime)
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    previous_complaint = relationship(
+        "Complaint",
+        foreign_keys=[previous_complaint_id]
+    )
+    new_complaint = relationship(
+        "Complaint",
+        foreign_keys=[new_complaint_id]
+    )
+    classified_by = relationship(
+        "User",
+        foreign_keys=[classified_by_user_id]
+    )

@@ -106,6 +106,14 @@
 
             <button
                 type="button"
+                class="nav-link faultline-nav-link"
+                data-view="faultline"
+            >
+                FAULTLINE
+            </button>
+
+            <button
+                type="button"
                 class="nav-link"
                 data-view="track"
             >
@@ -1256,6 +1264,121 @@
 
         </section>
 
+
+
+        <!-- =====================================================
+             FAULTLINE — POST-CLOSURE ACCOUNTABILITY
+             ===================================================== -->
+
+        <section
+            id="faultlineView"
+            class="view content-view faultline-view"
+            data-view-name="faultline"
+        >
+
+            <div class="page-shell inner-page-shell faultline-shell">
+
+                <header class="faultline-hero">
+
+                    <div class="faultline-hero-copy">
+                        <p class="section-label">POST-CLOSURE ACCOUNTABILITY</p>
+                        <h2>
+                            FAULTLINE
+                            <span>Where closed problems return.</span>
+                        </h2>
+                        <p>
+                            A repair may be marked complete. Reality gets the final word.
+                            CITYFILE links later reports to civic history without erasing
+                            either record.
+                        </p>
+                    </div>
+
+                    <div class="faultline-principle">
+                        <small>THE RULE</small>
+                        <strong>Repetition is not automatically a duplicate.</strong>
+                        <p>
+                            It can be a recurrence, an unresolved continuation, a new
+                            related fault, or simply a coincidence. FAULTLINE preserves
+                            the evidence until that difference is explained.
+                        </p>
+                    </div>
+
+                </header>
+
+                <section class="faultline-ledger" aria-label="Faultline summary">
+                    <article>
+                        <small>ACTIVE FAULTLINES</small>
+                        <strong id="faultlineActiveCount">0</strong>
+                        <span>awaiting explanation</span>
+                    </article>
+                    <article>
+                        <small>CHRONIC CHAINS</small>
+                        <strong id="faultlineChronicCount">0</strong>
+                        <span>multiple related records</span>
+                    </article>
+                    <article>
+                        <small>GHOST RECORDS</small>
+                        <strong id="faultlineGhostCount">0</strong>
+                        <span>closed, then challenged</span>
+                    </article>
+                    <article>
+                        <small>REPAIRS UNDER WATCH</small>
+                        <strong id="faultlineWatchCount">0</strong>
+                        <span>no recurrence observed yet</span>
+                    </article>
+                </section>
+
+                <section class="faultline-workbench">
+
+                    <div class="faultline-section-heading">
+                        <div>
+                            <small>CASES UNDER REVIEW</small>
+                            <h3>Relationships the city cannot quietly forget.</h3>
+                        </div>
+                        <button type="button" id="refreshFaultline" class="text-action">
+                            REFRESH ↻
+                        </button>
+                    </div>
+
+                    <div id="faultlineCaseList" class="faultline-case-list"></div>
+
+                </section>
+
+                <section id="faultlineDetail" class="faultline-detail" hidden></section>
+
+                <section class="faultline-secondary-grid">
+
+                    <article class="faultline-panel">
+                        <div class="faultline-panel-heading">
+                            <small>CHRONIC FAULTLINES</small>
+                            <strong>When a location develops a history.</strong>
+                        </div>
+                        <div id="faultlineChronicList" class="faultline-mini-list"></div>
+                    </article>
+
+                    <article class="faultline-panel">
+                        <div class="faultline-panel-heading">
+                            <small>CLOSURE WATCH</small>
+                            <strong>Repairs still inside the observation window.</strong>
+                        </div>
+                        <div id="faultlineWatchList" class="faultline-mini-list"></div>
+                    </article>
+
+                </section>
+
+                <section class="faultline-future-ai">
+                    <small>FUTURE INTELLIGENCE LAYER</small>
+                    <strong>AI can assist the investigation — never decide the truth.</strong>
+                    <p>
+                        Future versions can compare visual evidence, suggest infrastructure
+                        matches, and detect recurrence patterns across large civic histories.
+                        Human explanation and citizen verification remain the decision layer.
+                    </p>
+                </section>
+
+            </div>
+
+        </section>
 
 
         <!-- =====================================================

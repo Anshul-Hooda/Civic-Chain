@@ -2,6 +2,7 @@ import os
 import hashlib
 import uuid
 import re
+import math
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -628,6 +629,7 @@ def serialize_authority_attempt(db: Session, attempt, ordinal: int):
     return {
         "attempt": ordinal,
         "attempt_id": attempt.attempt_id,
+        "repair_passport_id": f"RP-{int(attempt.attempt_id):06d}",
         "complaint_id": attempt.complaint_id,
         "submitted_by_user_id": attempt.submitted_by_user_id,
         "proof": proof,
@@ -644,6 +646,400 @@ def append_integrity_event(complaint_id: int, data: dict):
         # rather than inventing one.
         print(f"Integrity event could not be appended for complaint {complaint_id}: {error}")
         return None
+
+
+# =========================================================
+# FAULTLINE — POST-CLOSURE RELATIONSHIP ENGINE
+# =========================================================
+
+FAULTLINE_CLOSURE_WATCH_DAYS = 7
+FAULTLINE_RECURRENCE_WINDOW_DAYS = 30
+
+# A category-specific spatial radius avoids treating every nearby civic report
+# as the same problem. These are conservative hackathon defaults and can be
+# tuned later without changing the database model.
+FAULTLINE_RADIUS_METERS = {
+    "water leakage": 60.0,
+    "pothole": 15.0,
+    "broken streetlight": 20.0,
+    "overflowing garbage": 30.0,
+}
+
+FAULTLINE_CLASSIFICATIONS = {
+    "recurrence",
+    "unresolved_continuation",
+    "new_related_fault",
+    "unrelated",
+    "undetermined",
+}
+
+
+def normalize_faultline_location(value):
+    text_value = str(value or "")
+    text_value = re.sub(
+        r"\|\s*Latitude:\s*-?\d+(?:\.\d+)?\s*,\s*Longitude:\s*-?\d+(?:\.\d+)?",
+        "",
+        text_value,
+        flags=re.IGNORECASE,
+    )
+    text_value = re.sub(r"\s+", " ", text_value).strip().lower()
+    return re.sub(r"[^a-z0-9 ]+", "", text_value).strip()
+
+
+def haversine_distance_meters(lat1, lon1, lat2, lon2):
+    values = [lat1, lon1, lat2, lon2]
+    if any(value is None for value in values):
+        return None
+
+    try:
+        lat1, lon1, lat2, lon2 = [float(value) for value in values]
+    except (TypeError, ValueError):
+        return None
+
+    earth_radius = 6_371_000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(delta_phi / 2) ** 2
+        + math.cos(phi1)
+        * math.cos(phi2)
+        * math.sin(delta_lambda / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1 - a)))
+    return earth_radius * c
+
+
+def latest_verified_resolution_review(db: Session, complaint_id: int):
+    return (
+        db.query(models.CitizenResolutionReview)
+        .filter(
+            models.CitizenResolutionReview.complaint_id == complaint_id,
+            models.CitizenResolutionReview.decision == "verified",
+        )
+        .order_by(
+            models.CitizenResolutionReview.created_at.desc(),
+            models.CitizenResolutionReview.resolution_review_id.desc(),
+        )
+        .first()
+    )
+
+
+def complaint_verified_at(db: Session, complaint_id: int):
+    review = latest_verified_resolution_review(db, complaint_id)
+    return review.created_at if review else None
+
+
+def faultline_links_for_complaint(db: Session, complaint_id: int):
+    records = (
+        db.query(models.FaultlineRelationship)
+        .filter(
+            (models.FaultlineRelationship.previous_complaint_id == complaint_id)
+            | (models.FaultlineRelationship.new_complaint_id == complaint_id)
+        )
+        .order_by(
+            models.FaultlineRelationship.created_at.asc(),
+            models.FaultlineRelationship.faultline_id.asc(),
+        )
+        .all()
+    )
+
+    return [
+        {
+            "faultline_id": record.faultline_id,
+            "previous_complaint_id": record.previous_complaint_id,
+            "new_complaint_id": record.new_complaint_id,
+            "role": (
+                "previous"
+                if record.previous_complaint_id == complaint_id
+                else "new"
+            ),
+            "relationship_status": record.relationship_status,
+            "suggested_relation": record.suggested_relation,
+            "location_relation": record.location_relation,
+            "category_relation": record.category_relation,
+            "time_relation": record.time_relation,
+            "distance_meters": record.distance_meters,
+            "days_since_closure": record.days_since_closure,
+            "previous_status": record.previous_status,
+            "closure_challenged_at": record.closure_challenged_at,
+            "authority_classification": record.authority_classification,
+            "authority_explanation": record.authority_explanation,
+            "classified_at": record.classified_at,
+            "created_at": record.created_at,
+        }
+        for record in records
+    ]
+
+
+def faultline_escalation_for_links(links):
+    incoming = [item for item in links if item.get("role") == "new"]
+    if len(incoming) >= 2:
+        return "CHRONIC"
+    if incoming:
+        return "REPEAT"
+    if links:
+        return "HISTORY"
+    return "NORMAL"
+
+
+def closure_watch_state(db: Session, complaint, links, verified_at):
+    if not verified_at:
+        return None
+
+    outgoing = [item for item in links if item.get("role") == "previous"]
+    if outgoing:
+        return {
+            "active": False,
+            "status": "recurrence_reported",
+            "days": None,
+            "remaining_days": 0,
+        }
+
+    elapsed_days = max(
+        0.0,
+        (datetime.utcnow() - verified_at).total_seconds() / 86400.0,
+    )
+
+    if elapsed_days <= FAULTLINE_CLOSURE_WATCH_DAYS:
+        return {
+            "active": True,
+            "status": "watching",
+            "days": round(elapsed_days, 2),
+            "remaining_days": round(
+                max(0.0, FAULTLINE_CLOSURE_WATCH_DAYS - elapsed_days),
+                2,
+            ),
+        }
+
+    return {
+        "active": False,
+        "status": "watch_complete",
+        "days": round(elapsed_days, 2),
+        "remaining_days": 0,
+    }
+
+
+def faultline_location_match(new_complaint, previous_complaint):
+    new_lat, new_lon = parse_report_coordinates(new_complaint.location)
+    old_lat, old_lon = parse_report_coordinates(previous_complaint.location)
+
+    category_name = (
+        str(new_complaint.category.category_name or "").strip().lower()
+        if new_complaint.category
+        else ""
+    )
+    radius = FAULTLINE_RADIUS_METERS.get(category_name, 25.0)
+
+    distance = haversine_distance_meters(
+        new_lat,
+        new_lon,
+        old_lat,
+        old_lon,
+    )
+
+    if distance is not None:
+        if distance <= 3:
+            relation = "EXACT"
+        elif distance <= 10:
+            relation = "VERY_CLOSE"
+        elif distance <= radius:
+            relation = "NEARBY"
+        else:
+            return None
+
+        return relation, round(distance, 2)
+
+    # Fallback for older records that were submitted before coordinates were
+    # captured. Exact normalized text is intentionally conservative.
+    new_text = normalize_faultline_location(new_complaint.location)
+    old_text = normalize_faultline_location(previous_complaint.location)
+
+    generic_locations = {
+        "delhi",
+        "new delhi",
+        "sonipat",
+        "gurugram",
+        "gurgaon",
+        "rohtak",
+        "pinned current location",
+    }
+
+    if (
+        new_text
+        and old_text
+        and new_text == old_text
+        and new_text not in generic_locations
+        and len(new_text) >= 6
+    ):
+        return "SAME_RECORDED_LOCATION", None
+
+    return None
+
+
+def detect_faultline_relationships(db: Session, new_complaint):
+    """
+    Detect relationship candidates after a new complaint is safely stored.
+    It never merges records or declares fault. It only creates an auditable
+    relationship candidate for later human classification.
+    """
+
+    candidates = (
+        db.query(models.Complaint)
+        .filter(
+            models.Complaint.complaint_id != new_complaint.complaint_id,
+            models.Complaint.city_id == new_complaint.city_id,
+            models.Complaint.category_id == new_complaint.category_id,
+        )
+        .order_by(
+            models.Complaint.created_at.desc(),
+            models.Complaint.complaint_id.desc(),
+        )
+        .limit(100)
+        .all()
+    )
+
+    created = []
+
+    for previous in candidates:
+        location_match = faultline_location_match(new_complaint, previous)
+        if not location_match:
+            continue
+
+        location_relation, distance_meters = location_match
+        previous_status = str(previous.status or "Submitted").strip()
+        previous_status_key = previous_status.lower()
+
+        verified_at = complaint_verified_at(db, previous.complaint_id)
+        days_since_closure = None
+        closure_challenged_at = None
+
+        if verified_at or previous_status_key in {"verified", "closed"}:
+            if verified_at and new_complaint.created_at:
+                days_since_closure = max(
+                    0.0,
+                    (new_complaint.created_at - verified_at).total_seconds()
+                    / 86400.0,
+                )
+
+            if days_since_closure is None:
+                # Legacy closed records may not have a persisted citizen-review
+                # timestamp. Keep the relationship visible without inventing a
+                # repair-survival duration.
+                suggested_relation = "possible_recurrence"
+                closure_challenged_at = datetime.utcnow()
+                time_relation = "CLOSED_TIME_UNKNOWN"
+            elif days_since_closure <= FAULTLINE_RECURRENCE_WINDOW_DAYS:
+                suggested_relation = "possible_recurrence"
+                closure_challenged_at = datetime.utcnow()
+                time_relation = (
+                    "CLOSURE_WATCH"
+                    if days_since_closure <= FAULTLINE_CLOSURE_WATCH_DAYS
+                    else "RECENT_CLOSURE"
+                )
+            else:
+                suggested_relation = "historically_related"
+                time_relation = "HISTORICAL_CLOSURE"
+        else:
+            suggested_relation = "possible_unresolved_continuation"
+            time_relation = "ACTIVE_PREVIOUS_RECORD"
+
+        existing = (
+            db.query(models.FaultlineRelationship)
+            .filter(
+                models.FaultlineRelationship.previous_complaint_id
+                == previous.complaint_id,
+                models.FaultlineRelationship.new_complaint_id
+                == new_complaint.complaint_id,
+            )
+            .first()
+        )
+        if existing:
+            continue
+
+        relationship = models.FaultlineRelationship(
+            previous_complaint_id=previous.complaint_id,
+            new_complaint_id=new_complaint.complaint_id,
+            relationship_status="under_review",
+            suggested_relation=suggested_relation,
+            location_relation=location_relation,
+            category_relation="EXACT",
+            time_relation=time_relation,
+            distance_meters=distance_meters,
+            days_since_closure=(
+                round(days_since_closure, 3)
+                if days_since_closure is not None
+                else None
+            ),
+            previous_status=previous_status,
+            closure_challenged_at=closure_challenged_at,
+        )
+        db.add(relationship)
+        db.flush()
+        created.append(relationship)
+
+    if not created:
+        return []
+
+    db.commit()
+
+    for relationship in created:
+        append_integrity_event(
+            relationship.new_complaint_id,
+            {
+                "event": "faultline_relationship_detected",
+                "faultline_id": relationship.faultline_id,
+                "previous_complaint_id": relationship.previous_complaint_id,
+                "suggested_relation": relationship.suggested_relation,
+                "location_relation": relationship.location_relation,
+                "distance_meters": relationship.distance_meters,
+                "days_since_closure": relationship.days_since_closure,
+            },
+        )
+
+        # The previous record is not reopened or rewritten. This event simply
+        # records that later evidence challenged the finality of its closure.
+        if relationship.closure_challenged_at:
+            append_integrity_event(
+                relationship.previous_complaint_id,
+                {
+                    "event": "closure_challenged_by_later_report",
+                    "faultline_id": relationship.faultline_id,
+                    "new_complaint_id": relationship.new_complaint_id,
+                },
+            )
+
+    return created
+
+
+def serialize_faultline_case(db: Session, relationship):
+    previous = db.query(models.Complaint).filter(
+        models.Complaint.complaint_id == relationship.previous_complaint_id
+    ).first()
+    current = db.query(models.Complaint).filter(
+        models.Complaint.complaint_id == relationship.new_complaint_id
+    ).first()
+
+    return {
+        "faultline_id": relationship.faultline_id,
+        "relationship_status": relationship.relationship_status,
+        "suggested_relation": relationship.suggested_relation,
+        "location_relation": relationship.location_relation,
+        "category_relation": relationship.category_relation,
+        "time_relation": relationship.time_relation,
+        "distance_meters": relationship.distance_meters,
+        "days_since_closure": relationship.days_since_closure,
+        "previous_status": relationship.previous_status,
+        "closure_challenged_at": relationship.closure_challenged_at,
+        "authority_classification": relationship.authority_classification,
+        "authority_explanation": relationship.authority_explanation,
+        "classified_at": relationship.classified_at,
+        "created_at": relationship.created_at,
+        "previous_complaint": serialize_complaint(db, previous) if previous else None,
+        "new_complaint": serialize_complaint(db, current) if current else None,
+    }
 
 
 def serialize_complaint(db: Session, complaint):
@@ -670,6 +1066,12 @@ def serialize_complaint(db: Session, complaint):
     anchor = blockchain.complaint_anchor(complaint.complaint_id)
     chain_events = blockchain.complaint_blocks(complaint.complaint_id)
     latitude, longitude = parse_report_coordinates(complaint.location)
+    faultline_links = faultline_links_for_complaint(
+        db, complaint.complaint_id
+    )
+    verified_at = complaint_verified_at(
+        db, complaint.complaint_id
+    )
 
     return {
         "complaint_id": complaint.complaint_id,
@@ -688,6 +1090,14 @@ def serialize_complaint(db: Session, complaint):
         "status": complaint.status,
         "created_at": complaint.created_at,
         "deadline": complaint.deadline,
+        "verified_at": verified_at,
+        "faultline_links": faultline_links,
+        "faultline_escalation": faultline_escalation_for_links(
+            faultline_links
+        ),
+        "closure_watch": closure_watch_state(
+            db, complaint, faultline_links, verified_at
+        ),
         "blockchain_hash": anchor.hash if anchor else None,
         "block_index": anchor.index if anchor else None,
         "integrity_type": "local_sha256_hash_chain",
@@ -1117,6 +1527,10 @@ def create_complaint(
             "status": new_complaint.status
         }
     )
+
+    # Detect historical relationships only after the independent complaint and
+    # its creation anchor exist. A match never prevents submission or merges IDs.
+    detect_faultline_relationships(db, new_complaint)
 
     # serialize_complaint looks up the first complaint block, so a failed local
     # hash-chain append simply appears as unanchored rather than being faked.
@@ -1826,6 +2240,99 @@ def review_authority_resolution(
         "review": serialize_resolution_review(review),
         "complaint": serialize_complaint(db, complaint)
     }
+
+
+# =========================================================
+# FAULTLINE API
+# =========================================================
+
+@app.get("/faultline")
+def get_faultline_cases(db: Session = Depends(get_db)):
+    relationships = (
+        db.query(models.FaultlineRelationship)
+        .order_by(
+            models.FaultlineRelationship.created_at.desc(),
+            models.FaultlineRelationship.faultline_id.desc(),
+        )
+        .all()
+    )
+    return [serialize_faultline_case(db, item) for item in relationships]
+
+
+@app.get("/faultline/{faultline_id}")
+def get_faultline_case(
+    faultline_id: int,
+    db: Session = Depends(get_db),
+):
+    relationship = db.query(models.FaultlineRelationship).filter(
+        models.FaultlineRelationship.faultline_id == faultline_id
+    ).first()
+
+    if not relationship:
+        raise HTTPException(status_code=404, detail="Faultline case not found")
+
+    return serialize_faultline_case(db, relationship)
+
+
+@app.post("/faultline/{faultline_id}/classify")
+def classify_faultline_case(
+    faultline_id: int,
+    payload: dict,
+    current_user: models.User = Depends(require_authority_user),
+    db: Session = Depends(get_db),
+):
+    relationship = db.query(models.FaultlineRelationship).filter(
+        models.FaultlineRelationship.faultline_id == faultline_id
+    ).first()
+
+    if not relationship:
+        raise HTTPException(status_code=404, detail="Faultline case not found")
+
+    classification = str(payload.get("classification") or "").strip().lower()
+    explanation = str(payload.get("explanation") or "").strip()
+
+    if classification not in FAULTLINE_CLASSIFICATIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Classification must be recurrence, unresolved_continuation, "
+                "new_related_fault, unrelated or undetermined."
+            ),
+        )
+
+    if not explanation:
+        raise HTTPException(
+            status_code=400,
+            detail="Explain how the previous and current records are related.",
+        )
+
+    relationship.relationship_status = "classified"
+    relationship.authority_classification = classification
+    relationship.authority_explanation = explanation
+    relationship.classified_by_user_id = current_user.user_id
+    relationship.classified_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(relationship)
+
+    event = {
+        "event": "faultline_relationship_classified",
+        "faultline_id": relationship.faultline_id,
+        "classification": classification,
+        "explanation": explanation,
+        "related_complaint_id": relationship.previous_complaint_id,
+    }
+    append_integrity_event(relationship.new_complaint_id, event)
+
+    append_integrity_event(
+        relationship.previous_complaint_id,
+        {
+            **event,
+            "related_complaint_id": relationship.new_complaint_id,
+        },
+    )
+
+    return serialize_faultline_case(db, relationship)
 
 
 @app.get("/complaints/{complaint_id}/resolution-attempts")
